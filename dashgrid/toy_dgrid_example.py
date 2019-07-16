@@ -93,7 +93,7 @@ def toy_example(host,port):
 #         column_width_percents=[80,19.8])
 
     # create a span with a file upload button and a div  for the filename
-    fnt = lambda fn: html.Div([html.H5(f'YOU ARE VIEWING: {"No csv uploaded yet" if fn is None else fn}',style={'height':'1px'})])     
+    fnt = lambda fn,data: html.Div([html.H5(f'YOU ARE VIEWING: {"No csv uploaded yet" if fn is None else fn}',style={'height':'1px'})])     
 
     up_grid = dgrid.CsvUploadGrid('upload-data',
             display_text=html.Div([html.H5("CLICK TO SELECT A LOCAL CSV",style={'height':'1px'})]),

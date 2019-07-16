@@ -15,6 +15,34 @@ import plotly.graph_objs as go
 import datetime,base64,io,pytz
 import flask
 from flask import redirect,url_for
+from pip._vendor.urllib3.connectionpool import _Default
+
+
+import logging
+
+def root_logger(logfile,logging_level=None):
+    level = logging_level
+    if level is None:
+        level = logging.DEBUG
+    # get root level logger
+    logger = logging.getLogger()
+    if len(logger.handlers)>0:
+        return logger
+    logger.setLevel(logging.getLevelName(level))
+
+    fh = logging.FileHandler(logfile)
+    fh.setLevel(logging.DEBUG)
+    # create console handler with a higher log level
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    # create formatter and add it to the handlers
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    ch.setFormatter(formatter)
+    # add the handlers to the logger
+    logger.addHandler(fh)
+    logger.addHandler(ch)   
+    return logger
 
 DEFAULT_TIMEZONE = 'US/Eastern'
 
@@ -151,17 +179,16 @@ class GridTable():
         if self.input_transformer is None:
             self.input_transformer = lambda dict_df: None if dict_df is None else pd.DataFrame(dict_df)
         self.dt_html = self.create_dt_html(df_in=df_in)
-                
+
+
     def create_dt_div(self,df_in=None):
         dt = dash_table.DataTable(
-            pagination_settings={
-                'current_page': 0,
-                'page_size': 100
-            },
-            pagination_mode='fe',
-            sorting='fe',
-            filtering=False, # 'fe',
-            content_style='grow',
+            page_current= 0,
+            page_size= 100,
+            page_action='native',
+            sort_action='native',
+            filter_action='none', # 'fe',
+#             content_style='grow',
             style_cell_conditional=[
                 {
                     'if': {'row_index': 'odd'},
@@ -175,12 +202,11 @@ class GridTable():
             ],
             
             style_as_list_view=False,
-#             n_fixed_rows=1,
             style_table={
                 'maxHeight':'450','overflowX': 'scroll',
             } ,
             editable=True,
-#             id=self.html_id + '_datatable'
+            css=[{"selector": "table", "rule": "width: 100%;"}],
             id=self.datatable_id
         )
         if df_in is None:
@@ -195,6 +221,8 @@ class GridTable():
                 html.H4(self.title,style={'height':'3px'}),
                 dt
             ]
+
+
     
     def create_dt_html(self,df_in=None):         
         dt_html = html.Div(self.create_dt_div(df_in=df_in),
@@ -374,21 +402,94 @@ def create_grid(component_array,num_columns=2,column_width_percents=None):
     return g
 
 #**************************************************************************************************
+
+#**************************************************************************************************
+class MultiInput():
+    def __init__(self,html_id,input_tuple_list):
+        self.html_id = html_id
+        self.input_tuple_list = input_tuple_list
+        self.store = dcc.Store(id=html_id)
+        self.output_tuple = (html_id,'data')
+        self.div = html.Div([self.store],style={'display':'none'})
+    
+    @property
+    def html(self):
+        return self.div        
+    
+    def callback(self,theapp):
+        @theapp.callback(
+            Output(self.output_tuple[0],self.output_tuple[1]),
+            [Input(t[0],t[1]) for t in self.input_tuple_list],
+        )
+        def update_div(*values):
+            return values        
+        return update_div
+       
+#**************************************************************************************************
+
+
+#**************************************************************************************************
+# class ReactiveDiv():
+#     def __init__(self,html_id,input_tuple,
+#                  input_transformer=None,display=True,
+#                  dom_storage_dict=None,
+#                  style=None):
+#         self.html_id = html_id
+#         self.input_tuple = input_tuple
+#         s = button_style if style is None else style
+# 
+#         self.dom_storage_id = f'reactive_div_dom_storage_{self.html_id}'
+#         self.dom_storage_dict = {} if dom_storage_dict is None else dom_storage_dict
+#         self.dom_storage = dcc.Store(id=self.dom_storage_id,storage_type='session',data=self.dom_storage_dict)
+# #         self.loading_children_id = f"reactdiv_loading_output_{self.html_id}"
+# #         self.loading = dcc.Loading(id=f"reactdiv_loading_{html_id}", children=[html.Div(id=self.loading_children_id)], type="default")
+#         if display:
+#             self.div = html.Div([html.Div([],id=self.html_id,style=s),self.dom_storage])
+#         else:
+#             self.div = html.Div([html.Div([],id=self.html_id,style={'display':'none'}),self.dom_storage])
+#         self.input_transformer = input_transformer 
+#         if self.input_transformer is None:
+#             self.input_transformer = lambda value,data: str(value)
+#         
+#         
+#     @property
+#     def html(self):
+#         return self.div        
+#     
+#     def callback(self,theapp):
+#         @theapp.callback(
+#             [Output(self.html_id,'children')],
+#             [Input(self.input_tuple[0],self.input_tuple[1])],
+#             [State(self.dom_storage_id,'data')]
+#         )
+#         def update_div(value,data):
+#             print('entering ReactiveDiv callback')
+#             d = self.dom_storage_dict if len(data)<=0 else data
+#             return self.input_transformer(value,d)        
+#         return update_div
+
 class ReactiveDiv():
     def __init__(self,html_id,input_tuple,
                  input_transformer=None,display=True,
+                 dom_storage_dict=None,
                  style=None):
         self.html_id = html_id
         self.input_tuple = input_tuple
         s = button_style if style is None else style
+
+        self.dom_storage_id = f'reactive_div_dom_storage_{self.html_id}'
+        self.dom_storage_dict = {} if dom_storage_dict is None else dom_storage_dict
+        self.dom_storage = dcc.Store(id=self.dom_storage_id,storage_type='session',data=self.dom_storage_dict)
         if display:
-            self.div = html.Div([],id=self.html_id,style=s)
+            self.div = dcc.Loading(children=[html.Div([],id=self.html_id,style=s),self.dom_storage],type='cube')
         else:
-            self.div = html.Div([],id=self.html_id,style={'display':'none'})
+            self.div = html.Div([html.Div([],id=self.html_id,style={'display':'none'}),self.dom_storage])
+
         self.input_transformer = input_transformer 
         if self.input_transformer is None:
-            self.input_transformer = lambda x: str(x)
-            
+            self.input_transformer = lambda value,data: str(value)
+        
+        
     @property
     def html(self):
         return self.div        
@@ -396,11 +497,15 @@ class ReactiveDiv():
     def callback(self,theapp):
         @theapp.callback(
             Output(self.html_id,'children'),
-            [Input(self.input_tuple[0],self.input_tuple[1])]
+            [Input(self.input_tuple[0],self.input_tuple[1])],
+            [State(self.dom_storage_id,'data')]
         )
-        def update_div(input):
-            return self.input_transformer(input)        
-        return update_div
+        def update_div(value,data):
+            print('entering ReactiveDiv callback')
+            d = self.dom_storage_dict if len(data)<=0 else data
+            return self.input_transformer(value,d)        
+        return update_div    
+    
 #**************************************************************************************************
 default_markdown_style={
     'borderWidth': '1px',
@@ -559,23 +664,22 @@ class CsvUploadGrid():
 
 #**************************************************************************************************
 
+
 #**************************************************************************************************
 class DropDownDiv():
     def __init__(self,html_id,
                  dropdown_labels,
                  dropdown_values,
-                 route_action=None,
                  placeholder = None,
                  transformer_method=None,
                  default_initial_index=0,
                  style=None):
         self.html_id = html_id
-        self.route_action = lambda v: v if route_action is None else route_action
         self.style = button_style if style is None else style
         self.input_tuple = (f'{html_id}_dropdown','value')
-        dropdown_choices = [{'label':l,'value':v} for l,v in zip(dropdown_labels,dropdown_values)]
+        self.dropdown_choices = [{'label':l,'value':v} for l,v in zip(dropdown_labels,dropdown_values)]
         self.dropdown = dcc.Dropdown(id=self.input_tuple[0], value=dropdown_values[default_initial_index],
-                options=dropdown_choices,
+                options=self.dropdown_choices,
                 placeholder="Select an Option" if placeholder is None else placeholder,
                 style=self.style)
         self.dropdown_div = html.Div([self.dropdown])
@@ -656,6 +760,246 @@ class FileDownLoadDiv():
 #             return download_csv
                 
 #**************************************************************************************************
+
+
+#**************************************************************************************************
+class  BaseComponent():
+    def __init__(self,html_id,
+                 display_component,
+                 display_properties,
+                 input_component=None,
+                 input_transformer=None,
+                 display=True,
+                 style=None):
+        self.html_id = html_id
+        self.display_component = display_component
+        self.display_properties = display_properties
+        self.display_component_html = self.display_component.html if hasattr(self.display_component, 'html') else display_component
+        self.display_component_id = str(self.display_component.id) if not hasattr(self.display_component,'html_id') else self.display_component.html_id
+        self.input_component = display_component if input_component is None else input_component
+        self.input_component_id = str(self.input_component.id) if not hasattr(self.input_component,'html_id') else self.input_component.html_id
+#         self.available_props = [p for p in self.input_component.available_properties if hasattr(input_component, p)]
+        self.input_transformer = input_transformer
+        if self.input_transformer is None:
+            self.input_transformer = lambda input_list: input_list
+        self.display = display
+        self.output_store_id = f'{self.html_id}_dropdown_output'
+        self.output_store = dcc.Store(id=self.output_store_id)
+        if hasattr(self.input_component, 'output_store_id'):
+            output_store_id = self.input_component.output_store_id
+            output_store_input = [Input(output_store_id,'data')]
+        else:
+            output_store_input = []
+        self.inputs =  output_store_input + [Input(self.display_component_id,p) for p in self.display_properties]
+
+        self.style = style
+        self._div = html.Div([html.Div([self.display_component_html],id=html_id),self.output_store])
+
+    @property
+    def html(self):
+        return self._div
+        
+
+    def callback(self,theapp):     
+        @theapp.callback(
+            Output(self.output_store_id,'data'), 
+            self.inputs 
+            )
+        def execute_callback(*inputs_and_states):
+            print(f'execute_callback: {self.html_id} {list(inputs_and_states)}')
+            if all([x is None for x in list(inputs_and_states)]):
+                return list(inputs_and_states)
+            return self.input_transformer(list(inputs_and_states))       
+        return execute_callback
+    
+            
+        
+#**************************************************************************************************
+
+
+#**************************************************************************************************
+#gt1.html.children[1]
+#gr1.html.children
+
+
+
+class component_example_dataframe_graph():
+    def __init__(self):
+        logger = root_logger('logfile.log', 'DEBUG')
+        df_initial = pd.DataFrame({'symbol':['ibm','spy'],'position':[100,200]})
+        def file_store_transformer(contents):
+            if contents is None or len(contents)<=0 or contents[0] is None:
+                d =  df_initial.to_dict('rows')
+            else:
+                d = parse_contents(contents[0]).to_dict('rows')
+            return [d]
+
+        dc = dcc.Upload(
+                id='file_upload',
+                children=html.Div(['click to upload']),
+                # Allow multiple files to be uploaded
+                multiple=False,
+            )        
+        file_upload = {
+            'component':dc,
+            'properties_to_output':None,
+            'input_component_tuples':[(dc.id,['last_modified'])],
+            }
+        
+        file_store = {
+            'component':dcc.Store(id='file_store'),
+            'properties_to_output':['data'],
+            'input_component_tuples':[(file_upload['component'].id,['contents'])],
+            'style':{'display':'none'},
+            'callback_input_transformer':file_store_transformer
+            }
+        
+
+        gt = GridTable('dt1', 'portfolio table', 
+                        (file_store['component'].id,'data'), 
+                       columns_to_display=['symbol','position'], 
+                       editable_columns='position',         
+            )
+        dt = gt.create_dt_div(df_initial)[1]
+        def dt_callback(input_list):
+            dict_df = input_list[0]
+            df = pd.DataFrame(dict_df)
+            columns=[{"name": i, "id": i,'editable': True if i in gt.editable_columns else False} for i in df.columns.values]                    
+            return [dict_df,columns]
+        
+        dt1 = {
+            'component':dt,
+            'properties_to_output':['data','columns'],
+            'input_component_tuples':[(file_store['component'].id,file_store['properties_to_output'])],
+            'callback_input_transformer':dt_callback
+            }
+        
+        gr = GridGraph('g1', 'graph 1',gt.output_content_tuple,
+                          df_x_column='symbol',df_y_columns=['position'],
+                          plot_bars=True)
+        def graph_callback(input_list):
+            dict_df = input_list[0]
+            df =  pd.DataFrame(dict_df)
+            fig = gr.make_chart_figure(df)
+            return [fig]
+        
+        gr1 = {
+            'component':gr.html.children,
+            'properties_to_output':['figure'],
+            'input_component_tuples':[(dt1['component'].id,dt1['properties_to_output'])],    
+            'callback_input_transformer':graph_callback
+            }
+        self.component_list=[file_upload,file_store,dt1,gr1]
+
+
+
+
+def get_used_properties(dash_component):
+    aplist = []
+    for ap in dash_component.available_properties:
+        if hasattr(dash_component,ap) and ap != 'id':
+            aplist.append(ap)
+    return aplist
+
+class  ComponentWrapper():
+    @staticmethod
+    def build_from_json(component_json):
+        cbt = None if 'callback_input_transformer' not in component_json else component_json['callback_input_transformer']
+        ict = None if 'input_component_tuples' not in component_json else component_json['input_component_tuples']
+        cw = ComponentWrapper(component_json['component'], 
+                component_json['properties_to_output'], 
+                input_component_tuples=ict, 
+                callback_input_transformer=cbt, 
+                style=None if 'style' not in component_json else component_json['style'])
+        return cw
+        
+    
+    def __init__(self,
+                 dash_component,
+                 properties_to_output=None,
+                 input_component_tuples=None,
+                 callback_input_transformer=None,
+                 style=None,
+                 logger=None):
+        self.logger = root_logger('logfile.log', 'INFO') if logger is None else logger
+        self.component = dash_component
+        self.cid = self.component.id
+        self.html_id = f'{self.cid}_html'
+        self.properties_to_output = [] if properties_to_output is None else properties_to_output
+        # create callback output list
+        output_sink_id = f'output_sink_{self.cid}'
+        self.sink = dcc.Store(id=output_sink_id)
+        self.callback_outputs = [Output(self.cid,p) for p in self.properties_to_output]  + [Output(output_sink_id,'data')]      
+        
+        # create callback input list
+        
+        self.callback_inputs = []
+        if input_component_tuples is not None:
+            for ict in input_component_tuples:
+                ic_id = ict[0]
+                props = ict[1]
+                self.callback_inputs += [Input(ic_id,p) for p in props]
+                
+        self.style = {} if style is None else style
+        self.callback_input_transformer = callback_input_transformer
+        def _default_transform(callback_input_list):
+#             r = (callback_input_list[0])
+#             return r
+            return callback_input_list
+        if self.callback_input_transformer is None:
+            self.callback_input_transformer = _default_transform
+        self.div = html.Div([self.component,self.sink])
+        
+    @property
+    def html(self):
+        return self.div           
+
+    def callback(self,theapp):     
+        @theapp.callback(
+            self.callback_outputs, 
+            self.callback_inputs 
+            )
+        def execute_callback(*inputs_and_states):
+            l = list(inputs_and_states)
+            self.logger.debug(f'{self.html_id} input: {l}')
+            x = self.callback_input_transformer(l)
+            self.logger.debug(f'{self.html_id} output: {x}')
+            if len(self.callback_outputs)>1:
+                l = x + [None]
+                return l  
+            else:
+                return [x]
+        if len(self.callback_inputs)<=0:
+            return None     
+        return execute_callback
+    
+            
+        
+#**************************************************************************************************
+
+
+
+# do dcc's always output to one of their own display properties?  can they change one of their own properties?
+
+class DropDown(BaseComponent):
+    def __init__(self,html_id,labels,values,input_component=None,style=None,
+                 input_transformer=None):
+        super(DropDown,self).__init__(html_id, 
+                dcc.Dropdown(id=f'dropdown_{html_id}',value=values[0],options=[{'label':l,'value':v} for l,v in zip(labels,values)]), 
+                input_component = input_component,
+                display_properties = ['value'],
+                style=style,
+                input_transformer=(lambda value_list:value_list[0]) if input_transformer is None else input_transformer)
+
+
+
+
+
+
+
+
+
+
 
 
 
