@@ -14,8 +14,8 @@ import plotly.graph_objs as go
 # import argparse as ap
 import datetime,base64,io,pytz
 import flask
-from flask import redirect,url_for
-from pip._vendor.urllib3.connectionpool import _Default
+# from flask import redirect,url_for
+# from pip._vendor.urllib3.connectionpool import _Default
 
 
 import logging
@@ -387,7 +387,7 @@ class DccStore():
         )
         def update_store(input_data,*args):
             return self.transformer_module(input_data)
- #**************************************************************************************************
+#**************************************************************************************************
            
 
 
@@ -429,44 +429,6 @@ class MultiInput():
 
 
 #**************************************************************************************************
-# class ReactiveDiv():
-#     def __init__(self,html_id,input_tuple,
-#                  input_transformer=None,display=True,
-#                  dom_storage_dict=None,
-#                  style=None):
-#         self.html_id = html_id
-#         self.input_tuple = input_tuple
-#         s = button_style if style is None else style
-# 
-#         self.dom_storage_id = f'reactive_div_dom_storage_{self.html_id}'
-#         self.dom_storage_dict = {} if dom_storage_dict is None else dom_storage_dict
-#         self.dom_storage = dcc.Store(id=self.dom_storage_id,storage_type='session',data=self.dom_storage_dict)
-# #         self.loading_children_id = f"reactdiv_loading_output_{self.html_id}"
-# #         self.loading = dcc.Loading(id=f"reactdiv_loading_{html_id}", children=[html.Div(id=self.loading_children_id)], type="default")
-#         if display:
-#             self.div = html.Div([html.Div([],id=self.html_id,style=s),self.dom_storage])
-#         else:
-#             self.div = html.Div([html.Div([],id=self.html_id,style={'display':'none'}),self.dom_storage])
-#         self.input_transformer = input_transformer 
-#         if self.input_transformer is None:
-#             self.input_transformer = lambda value,data: str(value)
-#         
-#         
-#     @property
-#     def html(self):
-#         return self.div        
-#     
-#     def callback(self,theapp):
-#         @theapp.callback(
-#             [Output(self.html_id,'children')],
-#             [Input(self.input_tuple[0],self.input_tuple[1])],
-#             [State(self.dom_storage_id,'data')]
-#         )
-#         def update_div(value,data):
-#             print('entering ReactiveDiv callback')
-#             d = self.dom_storage_dict if len(data)<=0 else data
-#             return self.input_transformer(value,d)        
-#         return update_div
 
 class ReactiveDiv():
     def __init__(self,html_id,input_tuple,
@@ -821,7 +783,92 @@ class  BaseComponent():
 #gt1.html.children[1]
 #gr1.html.children
 
+class GridDataTable(html.Div):
+    def __init__(self,html_id,title,
+                 input_content_tuple=None,
+                 df_in=None,
+                 columns_to_display=None,
+                 editable_columns=None,
+                 input_transformer=None,
+                 use_html_table=False):
+        super(GridDataTable,self).__init__([],id=html_id)
+        self.html_id = html_id
+        self.title = title
+        self.df_in = df_in
+        self.input_content_tuple =  input_content_tuple
+        self.columns_to_display = columns_to_display
+        self.editable_columns = [] if editable_columns is None else editable_columns
+        self.datatable_id = f'{html_id}_datatable'
+        self.output_content_tuple = (self.datatable_id,'data')
+        self.input_transformer = input_transformer
+        self.use_html_table = use_html_table
+        if self.input_transformer is None:
+            self.input_transformer = lambda dict_df: None if dict_df is None else pd.DataFrame(dict_df)
+        self.children = self.create_dt_html(df_in=df_in)
 
+    def create_dt_div(self,df_in=None):
+        dt = dash_table.DataTable(
+            page_current= 0,
+            page_size= 100,
+            page_action='native',
+            sort_action='native',
+            filter_action='none', # 'fe',
+#             content_style='grow',
+            style_cell_conditional=[
+                {
+                    'if': {'row_index': 'odd'},
+                    'backgroundColor': 'rgb(248, 248, 248)'
+                }
+            ] + [
+                {
+                    'if': {'column_id': c},
+                    'textAlign': 'left',
+                } for c in ['symbol', 'underlying']
+            ],
+            
+            style_as_list_view=False,
+            style_table={
+                'maxHeight':'450','overflowX': 'scroll',
+            } ,
+            editable=True,
+            css=[{"selector": "table", "rule": "width: 100%;"}],
+            id=self.datatable_id
+        )
+        if df_in is None:
+            df = pd.DataFrame({'no_data':[]})
+        else:
+            df = df_in.copy()
+            if self.columns_to_display is not None:
+                df = df[self.columns_to_display]                
+        dt.data=df.to_dict("rows")
+        dt.columns=[{"name": i, "id": i,'editable': True if i in self.editable_columns else False} for i in df.columns.values]                    
+        return [
+                html.H4(self.title,style={'height':'3px'}),
+                dt
+            ]
+
+
+    
+    def create_dt_html(self,df_in=None):         
+        dt_html = html.Div(self.create_dt_div(df_in=df_in),
+            id=self.html_id+"_inner_html",
+            style={'margin-right':'auto' ,'margin-left':'auto' ,'height': '98%','width':'98%','border':'thin solid'}
+        )
+        return dt_html
+         
+
+class MyDiv(html.Div):
+    def __init__(self,children,my_id=None,data=None):
+        super(MyDiv,self).__init__(children,id=my_id)
+        self.data = data
+    @property
+    def data(self):
+        return self.__data
+    @data.setter
+    def data(self, data):
+        self.__data = data
+    
+    
 
 class component_example_dataframe_graph():
     def __init__(self):
@@ -855,27 +902,32 @@ class component_example_dataframe_graph():
             }
         
 
-        gt = GridTable('dt1', 'portfolio table', 
-                        (file_store['component'].id,'data'), 
-                       columns_to_display=['symbol','position'], 
-                       editable_columns='position',         
+        dt = GridDataTable('dt1', 'portfolio table', 
+                    (file_store['component'].id,'data'), 
+                    columns_to_display=['symbol','position'], 
+                    editable_columns=['position']         
             )
-        dt = gt.create_dt_div(df_initial)[1]
+        
         def dt_callback(input_list):
             dict_df = input_list[0]
             df = pd.DataFrame(dict_df)
-            columns=[{"name": i, "id": i,'editable': True if i in gt.editable_columns else False} for i in df.columns.values]                    
-            return [dict_df,columns]
+            children = dt.create_dt_div(df)
+            return [children,dict_df]
+
         
         dt1 = {
-            'component':dt,
-            'properties_to_output':['data','columns'],
+#             'component':dt,
+            'component':dt.children,
+#             'properties_to_output':['children'],
+            'properties_to_output':['children',dt.output_content_tuple],
             'input_component_tuples':[(file_store['component'].id,file_store['properties_to_output'])],
             'callback_input_transformer':dt_callback
             }
         
-        gr = GridGraph('g1', 'graph 1',gt.output_content_tuple,
+#         gr = GridGraph('g1', 'graph 1',dt.output_content_tuple,
+        gr = GridGraph('g1', 'graph 1',dt.output_content_tuple,
                           df_x_column='symbol',df_y_columns=['position'],
+                          
                           plot_bars=True)
         def graph_callback(input_list):
             dict_df = input_list[0]
@@ -886,11 +938,29 @@ class component_example_dataframe_graph():
         gr1 = {
             'component':gr.html.children,
             'properties_to_output':['figure'],
-            'input_component_tuples':[(dt1['component'].id,dt1['properties_to_output'])],    
+            'input_component_tuples':[(dt.output_content_tuple[0],[dt.output_content_tuple[1]])],    
             'callback_input_transformer':graph_callback
+            }        
+        
+        dd_commod = {
+            'component':dcc.Dropdown(id='dd_commod',value='ES',options=[{'label':v,'value':v} for v in ['ES','CL','CB']]),
+            'properties_to_output':['value'],
             }
-        self.component_list=[file_upload,file_store,dt1,gr1]
-
+        def dd_month_callback(input_list):
+            commod = input_list[0]
+            if commod == 'ES':
+                op = [{'label':v,'value':v} for v in 'HMUZ']
+            else:
+                op =  [{'label':v,'value':v} for v in 'FGHJKMNQUVXZ']
+            return [op[0]['value'],op]
+            
+        dd_month = {
+            'component':dcc.Dropdown(id='dd_month'),
+            'properties_to_output':['value','options'],
+            'input_component_tuples':[(dd_commod['component'].id,['value'])],
+            'callback_input_transformer':dd_month_callback
+            }
+        self.component_list=[file_upload,file_store,dt1,gr1,dd_commod,dd_month]
 
 
 
@@ -902,6 +972,78 @@ def get_used_properties(dash_component):
     return aplist
 
 class  ComponentWrapper():
+    @staticmethod
+    def build_from_json(component_json):
+        cbt = None if 'callback_input_transformer' not in component_json else component_json['callback_input_transformer']
+        ict = None if 'input_component_tuples' not in component_json else component_json['input_component_tuples']
+        cw = ComponentWrapper(component_json['component'], 
+                component_json['properties_to_output'], 
+                input_component_tuples=ict, 
+                callback_input_transformer=cbt, 
+                style=None if 'style' not in component_json else component_json['style'])
+        return cw
+        
+    
+    def __init__(self,
+                 dash_component,
+                 input__tuples=None,
+                 output_tuples=None,
+                 callback_input_transformer=None,
+                 style=None,
+                 logger=None):
+        self.logger = root_logger('logfile.log', 'INFO') if logger is None else logger
+        self.component = dash_component
+        self.cid = self.component.id
+        self.html_id = f'{self.cid}_html'
+        self.properties_to_output = [] if output_tuples is None else output_tuples
+        # create callback output list
+        self.callback_outputs = []
+        for p in self.properties_to_output:
+            if type(p)==tuple:
+                o = Output(*p)
+            else:
+                o = Output(self.cid,p)
+            self.callback_outputs.append(o)
+        
+        # create callback input list        
+        self.callback_inputs = []
+        if input__tuples is not None:
+            for ict in input__tuples:
+                ic_id = ict[0]
+                p = ict[1]
+                self.callback_inputs += [Input(ic_id,p)]
+                
+        self.style = {} if style is None else style
+        
+        self.callback_input_transformer = callback_input_transformer
+        def _default_transform(callback_input_list):
+            return callback_input_list
+        
+        if self.callback_input_transformer is None:
+            self.callback_input_transformer = _default_transform
+        self.div = html.Div([self.component])
+        
+    @property
+    def html(self):
+        return self.div           
+
+    def callback(self,theapp):     
+        @theapp.callback(
+            self.callback_outputs, 
+            self.callback_inputs 
+            )
+        def execute_callback(*inputs_and_states):
+            l = list(inputs_and_states)
+            self.logger.debug(f'{self.html_id} input: {l}')
+            ret = self.callback_input_transformer(l)
+            self.logger.debug(f'{self.html_id} output: {ret}')
+            return ret
+        if len(self.callback_inputs)<=0:
+            return None     
+        return execute_callback
+    
+            
+class  ComponentWrapper2():
     @staticmethod
     def build_from_json(component_json):
         cbt = None if 'callback_input_transformer' not in component_json else component_json['callback_input_transformer']
@@ -929,7 +1071,15 @@ class  ComponentWrapper():
         # create callback output list
         output_sink_id = f'output_sink_{self.cid}'
         self.sink = dcc.Store(id=output_sink_id)
-        self.callback_outputs = [Output(self.cid,p) for p in self.properties_to_output]  + [Output(output_sink_id,'data')]      
+        self.callback_outputs = []
+        for p in self.properties_to_output:
+            if type(p)==tuple:
+                o = Output(*p)
+            else:
+                o = Output(self.cid,p)
+            self.callback_outputs.append(o)
+        self.callback_outputs += [Output(output_sink_id,'data')]
+#         self.callback_outputs = [Output(self.cid,p) for p in self.properties_to_output]  + [Output(output_sink_id,'data')]      
         
         # create callback input list
         
@@ -963,17 +1113,16 @@ class  ComponentWrapper():
             l = list(inputs_and_states)
             self.logger.debug(f'{self.html_id} input: {l}')
             x = self.callback_input_transformer(l)
-            self.logger.debug(f'{self.html_id} output: {x}')
             if len(self.callback_outputs)>1:
-                l = x + [None]
-                return l  
+                ret = x + [None]
             else:
-                return [x]
+                ret =  [x]
+            self.logger.debug(f'{self.html_id} output: {ret}')
+            return ret
         if len(self.callback_inputs)<=0:
             return None     
         return execute_callback
     
-            
         
 #**************************************************************************************************
 
