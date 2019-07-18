@@ -1048,7 +1048,7 @@ class  ComponentWrapper2():
     def build_from_json(component_json):
         cbt = None if 'callback_input_transformer' not in component_json else component_json['callback_input_transformer']
         ict = None if 'input_component_tuples' not in component_json else component_json['input_component_tuples']
-        cw = ComponentWrapper(component_json['component'], 
+        cw = ComponentWrapper2(component_json['component'], 
                 component_json['properties_to_output'], 
                 input_component_tuples=ict, 
                 callback_input_transformer=cbt, 
