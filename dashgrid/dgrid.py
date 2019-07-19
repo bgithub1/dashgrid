@@ -391,14 +391,27 @@ class DccStore():
            
 
 
-def create_grid(component_array,num_columns=2,column_width_percents=None):
+def create_grid(component_array,num_columns=2,column_width_percents=None,additional_grid_properties_dict=None):
     gs = grid_style.copy()
 #     if num_columns>2:
 #         gs = grid_style_3
     percents = [str(round(100/num_columns-.006,1))+'%' for _ in range(num_columns)] if column_width_percents is None else [str(c)+'%' for c in column_width_percents]
     perc_string = " ".join(percents)
-    gs['grid-template-columns'] = perc_string
-    g =  html.Div([GridItem(c).html if type(c)==str else c.html for c in component_array], style=gs)
+    gs['grid-template-columns'] = perc_string 
+    if additional_grid_properties_dict is not None:
+        for k in additional_grid_properties_dict.keys():
+            gs[k] = additional_grid_properties_dict[k]           
+#     g =  html.Div([GridItem(c).html if type(c)==str else c.html for c in component_array], style=gs)
+
+    div_children = []
+    for c in component_array:
+        if type(c)==str:
+            div_children.append(GridItem(c).html)
+        elif hasattr(c,'html'):
+            div_children.append(c.html)
+        else:
+            div_children.append(c)
+    g = html.Div(div_children,style=gs)
     return g
 
 #**************************************************************************************************
@@ -997,6 +1010,7 @@ class  ComponentWrapper():
         self.html_id = f'{self.cid}_html'
         self.properties_to_output = [] if output_tuples is None else output_tuples
         # create callback output list
+        self.output_tuples = output_tuples      
         self.callback_outputs = []
         for p in self.properties_to_output:
             if type(p)==tuple:
@@ -1005,7 +1019,7 @@ class  ComponentWrapper():
                 o = Output(self.cid,p)
             self.callback_outputs.append(o)
         
-        # create callback input list        
+        # create callback input list  
         self.callback_inputs = []
         if input__tuples is not None:
             for ict in input__tuples:
