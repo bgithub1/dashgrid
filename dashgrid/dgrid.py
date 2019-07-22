@@ -49,11 +49,16 @@ DEFAULT_TIMEZONE = 'US/Eastern'
 #**************************************************************************************************
 
 
+# grid_style = {'display': 'grid',
+#   'grid-template-columns': '49.9% 49.9%',
+#   'grid-gap': '1px',
+#   'border': '1px solid #000',
+# }
+
 grid_style = {'display': 'grid',
-  'grid-template-columns': '49.9% 49.9%',
-  'grid-gap': '1px',
-  'border': '1px solid #000',
-}
+              'border': '1px solid #000',
+              'grid-gap': '10px 10px',
+            'grid-template-columns': '1fr 1fr'}
 
 
 chart_style = {'margin-right':'auto' ,'margin-left':'auto' ,'height': '98%','width':'98%'}
@@ -393,9 +398,7 @@ class DccStore():
 
 def create_grid(component_array,num_columns=2,column_width_percents=None,additional_grid_properties_dict=None):
     gs = grid_style.copy()
-#     if num_columns>2:
-#         gs = grid_style_3
-    percents = [str(round(100/num_columns-.006,1))+'%' for _ in range(num_columns)] if column_width_percents is None else [str(c)+'%' for c in column_width_percents]
+    percents = [str(round(100/num_columns-.001,1))+'%' for _ in range(num_columns)] if column_width_percents is None else [str(c)+'%' for c in column_width_percents]
     perc_string = " ".join(percents)
     gs['grid-template-columns'] = perc_string 
     if additional_grid_properties_dict is not None:
@@ -1007,16 +1010,26 @@ class  ComponentWrapper():
         self.logger = root_logger('logfile.log', 'INFO') if logger is None else logger
         self.component = dash_component
         self.cid = self.component.id
+        self.id = self.cid
         self.html_id = f'{self.cid}_html'
         self.properties_to_output = [] if output_tuples is None else output_tuples
         # create callback output list
-        self.output_tuples = output_tuples      
+        self.output_tuples = output_tuples   
+        self.output_data_tuple = None 
+        if output_tuples is not None:
+            for ot in output_tuples:
+                if ot[1] == 'data' and self.output_data_tuple is None:
+                    self.output_data_tuple = ot
+                      
         self.callback_outputs = []
         for p in self.properties_to_output:
             if type(p)==tuple:
-                o = Output(*p)
+                t = p
+#                 o = Output(*p)
             else:
-                o = Output(self.cid,p)
+#                 o = Output(self.cid,p)
+                t = (self.id,p)
+            o = Output(*t)
             self.callback_outputs.append(o)
         
         # create callback input list  
