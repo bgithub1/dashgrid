@@ -32,7 +32,7 @@ import numpy as np
 from plotly.offline import  iplot
 import traceback
 from IPython import display
-
+import re
 import plotly.graph_objs as go
 from plotly.graph_objs.layout import Font,Margin
 import dash
@@ -46,6 +46,7 @@ DEFAULT_LOG_LEVEL = 'DEBUG'
 grid_style = {'display': 'grid',
               'border': '1px solid #000',
               'grid-gap': '10px 10px',
+              'background-color':'#fffff9',
             'grid-template-columns': '1fr 1fr'}
 
 
@@ -91,6 +92,7 @@ h4_like = {
     'font-size' : '16px',
     'font-weight': 'bold',
     'width': '100%',
+    'color':'#22aaff'
 }
 
 DEFAULT_TIMEZONE = 'US/Eastern'
@@ -171,11 +173,11 @@ def make_df(dict_df):
     else:
         return pd.DataFrame(dict_df,columns=dict_df.keys())
 
-
 def create_dt_div(dtable_id,df_in=None,
                   columns_to_display=None,
                   editable_columns_in=None,
-                  title='Dash Table',logger=None):
+                  title='Dash Table',logger=None,
+                  title_style=None):
     '''
     Create an instance of dash_table.DataTable, wrapped in an dash_html_components.Div
     
@@ -189,17 +191,13 @@ def create_dt_div(dtable_id,df_in=None,
                                     order that is displayed can only be guaranteed using this parameter.
     :param editable_columns_in:    A list of column names that contain "modifiable" cells. ( Default = None)
     :param title:    The title of the DataFrame.  (Default = Dash Table)
+    :param logger:
+    :param title_style: The css style of the title. Default is dgrid_components.h4_like.
     '''
     # create logger 
     lg = li.init_root_logger() if logger is None else logger
     
     lg.debug(f'{dtable_id} entering create_dt_div')
-#     if df_in is not None:
-#         print(f'{dtable_id} create_dt_div: df_in.columns.values = {df_in.columns.values}')
-#         print(f'{dtable_id} create_dt_div: columns_to_display = {columns_to_display}')
-#         if len(df_in.columns.values)<=0:
-#             print(f'{dtable_id} create_dt_div: df_in type = {type(df_in)}')
-#             display.display(df_in.head())
     
     # create list that 
     editable_columns = [] if editable_columns_in is None else editable_columns_in
@@ -208,12 +206,13 @@ def create_dt_div(dtable_id,df_in=None,
         page_current= 0,
         page_size= 100,
         filter_action='none', # 'fe',
-        style_cell_conditional=[
+        style_data_conditional=[
             {
                 'if': {'row_index': 'odd'},
                 'backgroundColor': 'rgb(248, 248, 248)'
             }
-        ] + [
+        ],
+        style_cell_conditional=[
             {
                 'if': {'column_id': c},
                 'textAlign': 'left',
@@ -238,7 +237,7 @@ def create_dt_div(dtable_id,df_in=None,
             
     dt.data=df.to_dict('rows')
     dt.columns=[{"name": i, "id": i,'editable': True if i in editable_columns else False} for i in df.columns.values]                    
-    s = h4_like
+    s = h4_like if title_style is None else title_style
     child_div = html.Div([html.Div(html.Div(title,style=s),style=table_like),dt])
     lg.debug(f'{dtable_id} exiting create_dt_div')
     return child_div
@@ -256,6 +255,40 @@ def file_store_transformer(contents):
         d = parse_contents(contents).to_dict('rows')
     return d
 
+
+def dataframe_rounder(df,digits=2,columns_to_round=None):
+    if df is None or len(df)<1:
+        return df
+    if 'dataframe' not in str(type(df)).lower():
+        raise ValueError('dataframe_rounder EXCEPTION: input df is NOT a Dataframe')
+    if columns_to_round is not None:
+        isok = False
+        if type(columns_to_round)==list:
+            isok=True
+        if type(columns_to_round)==set:
+            isok=True
+        if type(columns_to_round)==np.array:
+            isok=True
+        if type(columns_to_round)==tuple:
+            isok=True
+        if not isok:
+            raise ValueError('dataframe_rounder EXCEPTION: columns_to_round type is not a list, set, np.array or tuple') 
+    cols = columns_to_round
+    if cols is None or len(cols)<1:
+        cols = []        
+        # get first row
+        df1row = df.iloc[0:1]
+        for c in df1row.columns.values:
+            v = df1row.iloc[0][c]
+            v = str(v).strip()
+            r = re.findall('^[0-9\.]{1,}$',v)
+            if len(r)>0:
+                cols.append(c)
+    df_ret = df.copy()
+    for c in cols:
+        df_ret[c] = df_ret[c].round(digits)
+    return df_ret
+    
 
 def plotly_plot(df_in,x_column,plot_title=None,
                 y_left_label=None,y_right_label=None,
@@ -660,16 +693,22 @@ class UploadFileNameDiv(DivComponent):
                 input_component_property='filename',
                 style=button_style,
                 callback_input_transformer=lambda v: [f'Uploaded File: {v}'])
-    
+
+
     
 class DashTableComponent(ComponentWrapper):
     def __init__(self,component_id,df_initial,input_component=None,title=None,
-                 transform_input=None,editable_columns=None,style=None,logger=None):
+                 transform_input=None,editable_columns=None,style=None,logger=None,
+                 columns_to_round=None,digits_to_round=2,title_style=None):
         
         self.logger = li.init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
         # add component_id and html_id to self
         self.component_id = component_id
         self.html_id = self.component_id+'_html'
+        self.columns_to_round = columns_to_round
+        self.digits_to_round = digits_to_round
+        self.title_style = title_style
+        
         
         default_data_store = []
         if input_component is None:
@@ -685,7 +724,8 @@ class DashTableComponent(ComponentWrapper):
         dtable_div = create_dt_div(component_id,df_in=df_initial,
                         columns_to_display=cols,
                         editable_columns_in=editable_columns,
-                        title='Dash Table' if title is None else title)
+                        title='Dash Table' if title is None else title,
+                        title_style=self.title_style)
         
         dt_children = [dtable_div] + default_data_store
         outer_div = html.Div(dt_children,id=self.html_id,
@@ -709,9 +749,15 @@ class DashTableComponent(ComponentWrapper):
                             df = transform_input(value_list[0])
                         else:
                             df = make_df(input_dict)
+                        # check if rounding is  necessary
+                        if self.columns_to_round is not None:
+                            df = dataframe_rounder(df, digits=self.digits_to_round, columns_to_round=self.columns_to_round)
                         dt_div = create_dt_div(component_id,df_in=df,
-                                    columns_to_display=cols,
-                                    editable_columns_in=editable_cols,title=title,logger=logger)
+                                columns_to_display=cols,
+                                editable_columns_in=editable_cols,
+                                title=title,
+                                logger=logger,
+                                title_style=self.title_style)
                         output_dict = df.to_dict('records')
                         ret =  [dt_div,output_dict]
                 except Exception as e:
@@ -740,7 +786,9 @@ class DashTableComponent(ComponentWrapper):
         dtlam = _create_dt_lambda(self.component_id,cols,
                                   editable_columns,self.logger,transform_input=transform_input,title=title)
         self.callback_input_transformer = dtlam
-                
+    
+    
+            
 class XyGraphComponent(ComponentWrapper):
     def __init__(self,component_id,input_component,x_column,
                  transform_input=None,
