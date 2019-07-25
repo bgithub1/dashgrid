@@ -49,12 +49,6 @@ DEFAULT_TIMEZONE = 'US/Eastern'
 #**************************************************************************************************
 
 
-# grid_style = {'display': 'grid',
-#   'grid-template-columns': '49.9% 49.9%',
-#   'grid-gap': '1px',
-#   'border': '1px solid #000',
-# }
-
 grid_style = {'display': 'grid',
               'border': '1px solid #000',
               'grid-gap': '10px 10px',
