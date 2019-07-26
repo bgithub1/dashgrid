@@ -14,18 +14,10 @@ Define classes that inherit dgrid.ComponentWrapper.
 
 import datetime,base64,io,pytz
 
-import sys,os
-# if  not os.path.abspath('./') in sys.path:
-#     sys.path.append(os.path.abspath('./'))
-# if  not os.path.abspath('../') in sys.path:
-#     sys.path.append(os.path.abspath('../'))
-# sys.path.append(os.path.abspath('../../dashgrid'))
-# sys.path.append(os.path.abspath('../../dashgrid/dashgrid'))
-
 from dashgrid import logger_init as li
 import dash_html_components as html
 import dash_core_components as dcc
-from dash.dependencies import Input, Output,State
+from dash.dependencies import Input, Output#,State
 import dash_table
 import pandas as pd
 import numpy as np
@@ -34,7 +26,7 @@ import traceback
 from IPython import display
 import re
 import plotly.graph_objs as go
-from plotly.graph_objs.layout import Font,Margin
+from plotly.graph_objs.layout import Margin#,Font
 import dash
 
 DEFAULT_LOG_PATH = './logfile.log'
@@ -45,7 +37,7 @@ DEFAULT_LOG_LEVEL = 'DEBUG'
 
 grid_style = {'display': 'grid',
               'border': '1px solid #000',
-              'grid-gap': '10px 10px',
+              'grid-gap': '8px 8px',
               'background-color':'#fffff9',
             'grid-template-columns': '1fr 1fr'}
 
@@ -69,6 +61,16 @@ button_style_no_border={
     'line-height': '40px',
     'textAlign': 'center',
     'background-color':'#fffff0',
+    'vertical-align':'middle',
+}
+
+blue_button_style={
+    'line-height': '40px',
+#     'borderWidth': '1px',
+#     'borderStyle': borderline,
+#     'borderRadius': '1px',
+    'textAlign': 'center',
+    'background-color':'#A9D0F5',
     'vertical-align':'middle',
 }
 
@@ -281,7 +283,7 @@ def dataframe_rounder(df,digits=2,columns_to_round=None):
         for c in df1row.columns.values:
             v = df1row.iloc[0][c]
             v = str(v).strip()
-            r = re.findall('^[0-9\.]{1,}$',v)
+            r = re.findall('^[e\-0-9\.]{1,}$',v)
             if len(r)>0:
                 cols.append(c)
     df_ret = df.copy()
@@ -653,7 +655,7 @@ class DivComponent(ComponentWrapper):
                  callback_input_transformer=None,
                  style=None,logger=None):
         s = border_style if style is None else style
-        init_children = [] if initial_children is None else initial_children
+        init_children = '' if initial_children is None else initial_children
         h1 = html.Div(init_children,id=component_id,style=s)
         h1_lambda = (lambda v:[v]) if callback_input_transformer is None else callback_input_transformer
         input_tuple = None if input_component is None else [(input_component.id,input_component_property)]
@@ -663,10 +665,26 @@ class DivComponent(ComponentWrapper):
                     callback_input_transformer=h1_lambda,
                     style=s,
                     logger=logger)
-        
+
+    
+markdown_style={
+    'borderWidth': '1px',
+    'borderStyle': 'solid',
+    'borderRadius': '1px',
+    'background-color':'#fffffc',
+}
+class MarkdownComponent(ComponentWrapper):
+    def __init__(self,component_id,
+                 markdown_text,
+                 style=None,logger=None):
+        super(MarkdownComponent,self).__init__(
+            html.Div(html.Span(dcc.Markdown(markdown_text),
+            style=markdown_style),id=component_id),logger=logger)
 
 class UploadComponent(ComponentWrapper):
-    def __init__(self,component_id,text=None,style=None,logger=None):
+    def __init__(self,component_id,text=None,
+                 initial_data = None,
+                 style=None,logger=None):
         t = "Choose a File" if text is None else text
         self.component_id = component_id
         u1 = dcc.Upload(
@@ -674,10 +692,10 @@ class UploadComponent(ComponentWrapper):
                     children=html.Div([t]),
                     # Allow multiple files to be uploaded
                     multiple=False,
-                    style=button_style if style is None else style)
+                    style=blue_button_style if style is None else style)
         
         u1_lambda = lambda value_list: [None] if value_list[0] is None else [file_store_transformer(value_list[0])]
-        self.s1 = dcc.Store(id=component_id+"_store")
+        self.s1 = dcc.Store(id=component_id+"_store",data=[] if initial_data is None else [initial_data])
         super(UploadComponent,self).__init__(
                     u1,input__tuples=[(u1.id,'contents')],
                     output_tuples=[(self.s1.id,'data')],
@@ -688,11 +706,14 @@ class UploadComponent(ComponentWrapper):
         return html.Div([self.div,self.s1])
 
 class UploadFileNameDiv(DivComponent):
-    def __init__(self,component_id,upload_component):
+    def __init__(self,component_id,upload_component,text=None,style=None,initial_file_to_show=None):
+        t = 'YOU ARE VIEWING:' if text is None else text
+        initial_text = '' if initial_file_to_show is None else initial_file_to_show
         super(UploadFileNameDiv,self).__init__(component_id,upload_component,
                 input_component_property='filename',
-                style=button_style,
-                callback_input_transformer=lambda v: [f'Uploaded File: {v}'])
+                initial_children=initial_text,
+                style=blue_button_style if style is None else style,
+                callback_input_transformer=lambda v: [f'{t} {v}'])
 
 
     
@@ -758,8 +779,11 @@ class DashTableComponent(ComponentWrapper):
                                 title=title,
                                 logger=logger,
                                 title_style=self.title_style)
-                        output_dict = df.to_dict('records')
-                        ret =  [dt_div,output_dict]
+                        if df is None or len(df)<1:
+                            ret = [None,None]
+                        else:
+                            output_dict = df.to_dict('records')
+                            ret =  [dt_div,output_dict]
                 except Exception as e:
                     logger.warn(f'!!!!!!!!!!!!!! {component_id} _dt_lambda EXCEPTION: {str(e)} !!!!!!!!!!!!!')
                     traceback.print_exc()
@@ -900,9 +924,10 @@ class StoreComponent(ComponentWrapper):
                  input_component,
                  create_data_dictionary_from_df_transformer,
                  input_component_property='data',
+                 initial_data = None,
                  logger=None):
         
-        dcc_store = dcc.Store(id=component_id,data=[])
+        dcc_store = dcc.Store(id=component_id,data=[] if initial_data is None else [initial_data])
         
         def _create_callback_lambda(component_id,_input_transformer,logger,**kwargs):
             def callback_lambda(value_list): 
@@ -933,6 +958,9 @@ class StoreComponent(ComponentWrapper):
         self.callback_input_transformer  = _create_callback_lambda(component_id,
                                 create_data_dictionary_from_df_transformer, self.logger) 
 
+
+
+
 def make_app(app_component_list,grid_template_columns_list=None,app=None):
     components_with_callbacks = []
     layout_components = []
@@ -958,7 +986,7 @@ def make_app(app_component_list,grid_template_columns_list=None,app=None):
         layout_components.append(new_grid)
     
     ret_app =   dash.Dash() if app is None else app
-    ret_app.layout = html.Div(layout_components)
+    ret_app.layout = html.Div(layout_components,style={'margin-left':'10px','margin-right':'10px'})
     for ac in app_component_list:
         if isinstance(ac, ComponentWrapper):
             components_with_callbacks.append(ac)
