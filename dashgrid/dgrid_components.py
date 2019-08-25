@@ -14,20 +14,45 @@ Define classes that inherit dgrid.ComponentWrapper.
 
 import datetime,base64,io,pytz
 
-from dashgrid import logger_init as li
 import dash_html_components as html
 import dash_core_components as dcc
 from dash.dependencies import Input, Output#,State
+from dash.exceptions import PreventUpdate
 import dash_table
 import pandas as pd
 import numpy as np
 from plotly.offline import  iplot
 import traceback
-from IPython import display
 import re
 import plotly.graph_objs as go
 from plotly.graph_objs.layout import Margin#,Font
 import dash
+import flask
+import logging
+
+def init_root_logger(logfile='logfile.log',logging_level='INFO'):
+    level = logging_level
+    if level is None:
+        level = logging.DEBUG
+    # get root level logger
+    logger = logging.getLogger()
+    if len(logger.handlers)>0:
+        return logger
+    logger.setLevel(logging.getLevelName(level))
+
+    fh = logging.FileHandler(logfile)
+    fh.setLevel(logging.DEBUG)
+    # create console handler with a higher log level
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    # create formatter and add it to the handlers
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    ch.setFormatter(formatter)
+    # add the handlers to the logger
+    logger.addHandler(fh)
+    logger.addHandler(ch)   
+    return logger
 
 DEFAULT_LOG_PATH = './logfile.log'
 DEFAULT_LOG_LEVEL = 'DEBUG'
@@ -41,6 +66,11 @@ grid_style = {'display': 'grid',
               'background-color':'#fffff9',
             'grid-template-columns': '1fr 1fr'}
 
+file_download_grid_style = {'display': 'grid',
+              'border': '1px solid #000',
+              'grid-gap': '8px 8px',
+              'background-color':'#ffffff',
+            'grid-template-columns': '1fr 1fr'}
 
 chart_style = {'margin-right':'auto' ,'margin-left':'auto' ,'height': '98%','width':'98%'}
 
@@ -170,8 +200,9 @@ def parse_contents(contents):
 
 def make_df(dict_df):
     if type(dict_df)==list:
-#         cols = dict_df[0].keys()
-        return pd.DataFrame(dict_df)
+        if type(dict_df[0])==list:
+            dict_df = dict_df[0]
+        return pd.DataFrame(dict_df,columns=dict_df[0].keys())
     else:
         return pd.DataFrame(dict_df,columns=dict_df.keys())
 
@@ -197,7 +228,7 @@ def create_dt_div(dtable_id,df_in=None,
     :param title_style: The css style of the title. Default is dgrid_components.h4_like.
     '''
     # create logger 
-    lg = li.init_root_logger() if logger is None else logger
+    lg = init_root_logger() if logger is None else logger
     
     lg.debug(f'{dtable_id} entering create_dt_div')
     
@@ -235,6 +266,10 @@ def create_dt_div(dtable_id,df_in=None,
     else:
         df = df_in.copy()
         if columns_to_display is not None:
+            if any([c not in df.columns.values for c in columns_to_display]):
+                m = f'create_dt_div EXCEPTION: actual columns of {df.columns.values} do not match desired columns of {columns_to_display}'
+                print(df)
+                raise ValueError(m)           
             df = df[columns_to_display]
             
     dt.data=df.to_dict('rows')
@@ -578,7 +613,7 @@ class  ComponentWrapper():
                  style=None,
                  logger=None,
                  loading_state='cube'):
-        self.logger = li.init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
+        self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
         self.component = dash_component
         self.cid = self.component.id
         self.id = self.cid
@@ -643,9 +678,12 @@ class  ComponentWrapper():
             return None     
         return execute_callback
 
-def stop_callback(errmess):
+def stop_callback(errmess,logger=None):
     m = "****************************** " + errmess + " ***************************************"     
-    raise ValueError(m)
+    if logger is not None:
+        logger.debug(m)
+    raise PreventUpdate()
+#     raise ValueError(m)
 # ************************ Define the classes that inherit dgrid.ComponentWrapper ************************
 
 class DivComponent(ComponentWrapper):
@@ -671,15 +709,15 @@ markdown_style={
     'borderWidth': '1px',
     'borderStyle': 'solid',
     'borderRadius': '1px',
-    'background-color':'#fffffc',
+    'background-color':'#ffffff',
 }
 class MarkdownComponent(ComponentWrapper):
     def __init__(self,component_id,
                  markdown_text,
                  style=None,logger=None):
         super(MarkdownComponent,self).__init__(
-            html.Div(html.Span(dcc.Markdown(markdown_text),
-            style=markdown_style),id=component_id),logger=logger)
+            html.Span(dcc.Markdown(markdown_text),id=component_id,
+            style=markdown_style),logger=logger)
 
 class UploadComponent(ComponentWrapper):
     def __init__(self,component_id,text=None,
@@ -722,7 +760,7 @@ class DashTableComponent(ComponentWrapper):
                  transform_input=None,editable_columns=None,style=None,logger=None,
                  columns_to_round=None,digits_to_round=2,title_style=None):
         
-        self.logger = li.init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
+        self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
         # add component_id and html_id to self
         self.component_id = component_id
         self.html_id = self.component_id+'_html'
@@ -734,8 +772,9 @@ class DashTableComponent(ComponentWrapper):
         default_data_store = []
         if input_component is None:
             dcs_id = f'{component_id}_default_store'
-            dcs_data = None if df_initial is None else df_initial.to_dict('rows')
-            default_data_store.append(dcc.Store(id=dcs_id,data=[dcs_data]))
+#             dcs_data = None if df_initial is None else df_initial.to_dict('rows')
+            dcs_data = None if df_initial is None else df_initial.to_dict()
+            default_data_store.append(dcc.Store(id=dcs_id,data=dcs_data))
             input_tuples = [(dcs_id,'data')]
         else:
             input_tuples = [input_component.output_data_tuple]
@@ -767,7 +806,7 @@ class DashTableComponent(ComponentWrapper):
                     if value_list[0] is not None:
                         input_dict = value_list[0]
                         if transform_input is not None:
-                            df = transform_input(value_list[0])
+                            df = transform_input(input_dict)
                         else:
                             df = make_df(input_dict)
                         # check if rounding is  necessary
@@ -789,7 +828,7 @@ class DashTableComponent(ComponentWrapper):
                     traceback.print_exc()
                 logger.debug(f'{component_id} _dt_lambda ret: {ret}')
                 if ret[0] is None:
-                    stop_callback(f'{component_id} _dt_lambda value_list has no data.  Callback return is ignored')
+                    stop_callback(f'{component_id} _dt_lambda value_list has no data.  Callback return is ignored',logger)
                 return ret
             return _dt_lambda
         
@@ -819,7 +858,7 @@ class XyGraphComponent(ComponentWrapper):
                  plot_bars=True,title=None,
                  style=None,logger=None):
         
-        self.logger = li.init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
+        self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
         # create title
         t = f"Graph {component_id}" if title is None else title
         
@@ -851,7 +890,7 @@ class XyGraphComponent(ComponentWrapper):
                 logger.debug(f'{component_id} gr_lambda ret: {ret}')
                 if ret[0] is None:
                     err_mess = f'{component_id} gr_lambda IGNORING callback. NO ERROR'
-                    stop_callback(err_mess)
+                    stop_callback(err_mess,logger)
                 return ret
             return gr_lambda
 
@@ -876,7 +915,7 @@ class FigureComponent(ComponentWrapper):
                  input_component_property='data',
                  figure=None,style=None,logger=None):
 
-        self.logger = li.init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
+        self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
 
         # add component_id and html_id to self
         self.component_id = component_id
@@ -896,7 +935,7 @@ class FigureComponent(ComponentWrapper):
                 logger.debug(f'{component_id} gr_lambda ret: {ret}')
                 if ret[0] is None:
                     err_mess = f'{component_id} gr_lambda IGNORING callback. NO ERROR'
-                    stop_callback(err_mess)
+                    stop_callback(err_mess,logger)
                 return ret
             
             if hard_coded_figure is not None:
@@ -943,7 +982,7 @@ class StoreComponent(ComponentWrapper):
                 logger.debug(f'{component_id} callback ret: {ret}')
                 if ret[0] is None:
                     err_mess = f'{component_id} callback: IGNORING callback. NO ERROR'
-                    stop_callback(err_mess)
+                    stop_callback(err_mess,logger)
                 return ret
             return callback_lambda
         
@@ -958,7 +997,114 @@ class StoreComponent(ComponentWrapper):
         self.callback_input_transformer  = _create_callback_lambda(component_id,
                                 create_data_dictionary_from_df_transformer, self.logger) 
 
+class FiledownloadComponent(ComponentWrapper):
+    def __init__(self,component_id,
+                 dropdown_labels,dropdown_values,
+                 drop_down_placeholder_text,a_link_text,
+                 create_file_name_transformer=None,
+                 style=None,logger=None):
 
+        # create important id's
+        self.dropdown_id = component_id+"_dropdown"
+        self.a_link_id = component_id + '_last_downloaded'
+
+        s = button_style if style is None else style
+        self.dropdown_values = dropdown_values
+        dropdown_choices = [{'label':l,'value':v} for l,v in zip(dropdown_labels,dropdown_values)]
+        dropdown_div = html.Div([
+                dcc.Dropdown(
+                    id=self.dropdown_id, 
+                    options=dropdown_choices,
+                    style=s,
+                    placeholder=drop_down_placeholder_text)
+        ])
+        
+        # creat A div 
+        href_div = html.Div(html.A(a_link_text,href='',id=self.a_link_id),style=s)
+        gs= grid_style.copy()
+        gs['background-color'] = '#ffffff'
+        self.fd_div = html.Div([dropdown_div,href_div],style=gs,id=component_id)
+        self.create_file_name_transformer = lambda value: str(value) if create_file_name_transformer is None else create_file_name_transformer
+        
+        # create callback that populates the A link
+        def _update_link(input_value):
+            v = input_value[0]
+            if v is None:
+                v = self.dropdown_values[0]
+            return ['/dash/urlToDownload?value={}'.format(v)]        
+                
+        super(FiledownloadComponent,self).__init__(
+            self.fd_div, 
+            input__tuples=[(self.dropdown_id,'value')], 
+            output_tuples=[(self.a_link_id,'href')], 
+            callback_input_transformer=_update_link, 
+            logger=logger)
+    
+    def route(self,theapp):
+        @theapp.server.route('/dash/urlToDownload')
+        def download_csv():
+            value = flask.request.args.get('value')            
+            fn = self.create_file_name_transformer(value)
+            print(f'FileDownLoadDiv callback file name = {fn}')
+            return flask.send_file(fn,
+                               mimetype='text/csv',
+                               attachment_filename=fn,
+                               as_attachment=True)
+        return download_csv
+
+
+class FileDownLoadDiv():
+    def __init__(self,html_id,
+                 dropdown_labels,dropdown_values,drop_down_placeholder_text,a_link_text,
+                 create_file_name_transformer=None,
+                 style=None):
+        self.html_id = html_id
+        s = button_style if style is None else style
+        self.input_tuple = (f'{html_id}_dropdown','value')
+        self.dropdown_values = dropdown_values
+        dropdown_choices = [{'label':l,'value':v} for l,v in zip(dropdown_labels,dropdown_values)]
+        dropdown_div = html.Div([
+                dcc.Dropdown(
+                    id=self.input_tuple[0], 
+#                     value=dropdown_values[0],
+                    options=dropdown_choices,
+                    style=s,
+                    placeholder=drop_down_placeholder_text)
+        ])
+        self.output_tuple = (f'{html_id}_last_downloaded','href')
+        href_div = html.Div(html.A(a_link_text,href='',id=self.output_tuple[0]),style=s)
+        gs= grid_style.copy()
+        gs['background-color'] = '#ffffff'
+        self.fd_div = html.Div([dropdown_div,href_div],style=gs)
+        self.create_file_name_transformer = lambda value: str(value) if create_file_name_transformer is None else create_file_name_transformer
+    @property
+    def html(self):
+        return self.fd_div
+        
+
+    def callback(self,theapp):     
+        @theapp.callback(
+            Output(self.output_tuple[0], self.output_tuple[1]), 
+            [Input(self.input_tuple[0],self.input_tuple[1])]
+            )
+        def update_link(value):
+            v = value
+            if v is None:
+                v = self.dropdown_values[0]
+            return '/dash/urlToDownload?value={}'.format(v)        
+        return update_link
+    
+    def route(self,theapp):
+        @theapp.server.route('/dash/urlToDownload')
+        def download_csv():
+            value = flask.request.args.get('value')            
+            fn = self.create_file_name_transformer(value)
+            print(f'FileDownLoadDiv callback file name = {fn}')
+            return flask.send_file(fn,
+                               mimetype='text/csv',
+                               attachment_filename=fn,
+                               as_attachment=True)
+        return download_csv
 
 
 def make_app(app_component_list,grid_template_columns_list=None,app=None):
@@ -985,8 +1131,11 @@ def make_app(app_component_list,grid_template_columns_list=None,app=None):
         new_grid = create_grid(sub_list_grid_components, additional_grid_properties_dict={'grid-template-columns':grid_template_columns})
         layout_components.append(new_grid)
     
-    ret_app =   dash.Dash() if app is None else app
-    ret_app.layout = html.Div(layout_components,style={'margin-left':'10px','margin-right':'10px'})
+
+    for ac in app_component_list:
+        if hasattr(ac, 'route'):
+            ac.route(ret_app)
+    
     for ac in app_component_list:
         if isinstance(ac, ComponentWrapper):
             components_with_callbacks.append(ac)
