@@ -1,7 +1,7 @@
 '''
 Created on Jul 21, 2019
 
-Define classes that inherit dgrid.ComponentWrapper.  
+Define classes that inherit ComponentWrapper.  
 1. These classes facilitate use of:
     dash_core_components
     dash_html_components
@@ -100,7 +100,7 @@ blue_button_style={
 #     'borderStyle': borderline,
 #     'borderRadius': '1px',
     'textAlign': 'center',
-    'background-color':'#A9D0F5',
+    'background-color':'#A9D0F5',#ed4e4e
     'vertical-align':'middle',
 }
 
@@ -142,7 +142,8 @@ class GridItem():
         else:
             return html.Div(children=self.child,className='grid-item')
 
-def create_grid(component_array,num_columns=2,column_width_percents=None,additional_grid_properties_dict=None):
+def create_grid(component_array,num_columns=2,column_width_percents=None,additional_grid_properties_dict=None,
+                wrap_in_loading_state=False):
     gs = grid_style.copy()
     percents = [str(round(100/num_columns-.001,1))+'%' for _ in range(num_columns)] if column_width_percents is None else [str(c)+'%' for c in column_width_percents]
     perc_string = " ".join(percents)
@@ -160,7 +161,10 @@ def create_grid(component_array,num_columns=2,column_width_percents=None,additio
             div_children.append(c.html)
         else:
             div_children.append(c)
-    g = html.Div(div_children,style=gs)
+    if wrap_in_loading_state:
+        g = dcc.Loading(html.Div(div_children,style=gs),type='cube')
+    else:
+        g = html.Div(div_children,style=gs)
     return g
 
 
@@ -206,6 +210,10 @@ def make_df(dict_df):
     else:
         return pd.DataFrame(dict_df,columns=dict_df.keys())
 
+class BadColumnsException(Exception):
+    def __init__(self,*args,**kwargs):
+        Exception.__init__(self,*args,**kwargs)
+    
 def create_dt_div(dtable_id,df_in=None,
                   columns_to_display=None,
                   editable_columns_in=None,
@@ -267,9 +275,8 @@ def create_dt_div(dtable_id,df_in=None,
         df = df_in.copy()
         if columns_to_display is not None:
             if any([c not in df.columns.values for c in columns_to_display]):
-                m = f'create_dt_div EXCEPTION: actual columns of {df.columns.values} do not match desired columns of {columns_to_display}'
-                print(df)
-                raise ValueError(m)           
+                m = f'{columns_to_display} are missing from input data. Your input Csv'
+                raise BadColumnsException(m)           
             df = df[columns_to_display]
             
     dt.data=df.to_dict('rows')
@@ -331,6 +338,7 @@ def plotly_plot(df_in,x_column,plot_title=None,
                 y_left_label=None,y_right_label=None,
                 bar_plot=True,figsize=(16,10),
                 number_of_ticks_display=20,
+                marker_color=None,
                 yaxis2_cols=None):
     '''
     Create a plotly.graph_objs.Graph figure.  The caller provides a Pandas DataFrame,
@@ -361,6 +369,8 @@ def plotly_plot(df_in,x_column,plot_title=None,
     for ycol in ycols:
         if bar_plot:
             b = go.Bar(x=td,y=df_in[ycol],name=ycol,yaxis='y' if ycol not in ya2c else 'y2')
+            if marker_color is not None:                
+                b.marker=dict(color=marker_color)                
         else:
             b = go.Scatter(x=td,y=df_in[ycol],name=ycol,yaxis='y' if ycol not in ya2c else 'y2')
         data.append(b)
@@ -654,8 +664,8 @@ class  ComponentWrapper():
         
         if self.callback_input_transformer is None:
             self.callback_input_transformer = _default_transform
-#         self.div = html.Div([self.component])
-        self.div = dcc.Loading(children=html.Div([self.component]),type=loading_state)
+        self.div = html.Div([self.component])
+#         self.div = dcc.Loading(children=html.Div([self.component]),type=loading_state)
 
 
         
@@ -722,12 +732,14 @@ class MarkdownComponent(ComponentWrapper):
 class UploadComponent(ComponentWrapper):
     def __init__(self,component_id,text=None,
                  initial_data = None,
+                 acceptable_file_extensions='.csv',
                  style=None,logger=None):
         t = "Choose a File" if text is None else text
         self.component_id = component_id
         u1 = dcc.Upload(
                     id=component_id,
                     children=html.Div([t]),
+                    accept = acceptable_file_extensions,
                     # Allow multiple files to be uploaded
                     multiple=False,
                     style=blue_button_style if style is None else style)
@@ -823,6 +835,18 @@ class DashTableComponent(ComponentWrapper):
                         else:
                             output_dict = df.to_dict('records')
                             ret =  [dt_div,output_dict]
+                except BadColumnsException:
+                    # return an error message in place of the actual DataFrame
+                    colstext = str(cols).replace('[','').replace(']','')
+                    children = [
+                        html.H3('ERROR FROM INPUT CSV FILE'),
+                        html.P(f'Expected CSV File with columns:'),
+                        html.P(colstext),
+                        html.P(f'Actual CSV Columns are:'),
+                        html.P(str(df.columns.values))
+                    ]
+                    err_html = html.Div(children,style={'line-height':'100%'})
+                    ret = [err_html,{}]                    
                 except Exception as e:
                     logger.warn(f'!!!!!!!!!!!!!! {component_id} _dt_lambda EXCEPTION: {str(e)} !!!!!!!!!!!!!')
                     traceback.print_exc()
@@ -856,6 +880,7 @@ class XyGraphComponent(ComponentWrapper):
     def __init__(self,component_id,input_component,x_column,
                  transform_input=None,
                  plot_bars=True,title=None,
+                 marker_color=None,
                  style=None,logger=None):
         
         self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
@@ -867,7 +892,8 @@ class XyGraphComponent(ComponentWrapper):
 
         # add component_id and html_id to self
         self.component_id = component_id
-        gr_html = make_chart_html(component_id,None,x_column,plot_title=t)
+        gr_html = make_chart_html(component_id,None,
+                    x_column,plot_title=t,marker_color=marker_color)
 
         # define dash_table callback using closure so that you don't refer back to 
         #   class instance during the callback
@@ -882,7 +908,8 @@ class XyGraphComponent(ComponentWrapper):
                         else:
                             df = make_df(value_list[0])
                         if df is not None:
-                            fig = plotly_plot(df,x_column,plot_title=plot_title,bar_plot=plot_bars)
+                            fig = plotly_plot(df,x_column,
+                                    plot_title=plot_title,bar_plot=plot_bars,marker_color=marker_color)
                             ret =  [fig]
                 except Exception as e:
                     traceback.print_exc()
@@ -906,6 +933,84 @@ class XyGraphComponent(ComponentWrapper):
         gr_lam = _create_gr_lambda(self.component_id,x_column,t,self.logger,transform_input=transform_input)
         self.callback_input_transformer = gr_lam
         
+#**************************************************************************************************
+class ChainedDropDownDiv(ComponentWrapper):
+    def __init__(self,component_id,
+                 dropdown_input_components=None,
+                 initial_dropdown_labels=None,
+                 initial_dropdown_values=None,
+                 placeholder = None,
+                 choices_transformer_method=None,
+                 default_initial_index=0,
+                 style=None,logger=None):
+        
+        self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
+
+        # add component_id to self
+        self.component_id = component_id
+        self.dropdown_id = f'{component_id}_dropdown'
+        self.style = button_style if style is None else style
+        
+        # define callback inputs
+        # let the dropdown choice that one makes be the first input to the list of callback inputs
+        input_tuples = [(self.dropdown_id,'value')]
+        # if there is another callback input, add it to the list of callback inputs
+        if dropdown_input_components is not None:
+            for dic in dropdown_input_components:
+                input_tuples += [dic.output_data_tuple]
+
+        # if there are predefined labels and values for the dropdown, assign them                
+        self.dropdown_choices = [] if initial_dropdown_labels is None else [{'label':l,'value':v} for l,v in zip(initial_dropdown_labels,initial_dropdown_values)]
+        if len(self.dropdown_choices)>0:
+            # create dropdown dash component with initial choices
+            self.dropdown = dcc.Dropdown(id=self.dropdown_id, value=initial_dropdown_values[default_initial_index],
+                    options=self.dropdown_choices,
+                    placeholder="Select an Option" if placeholder is None else placeholder,
+                    style=self.style)
+        else:
+            # create dropdown dash component WITHOUT initial choices (they will be added during the callback)
+            self.dropdown = dcc.Dropdown(id=self.dropdown_id,
+                    placeholder="Select an Option" if placeholder is None else placeholder,
+                    style=self.style)
+            
+        self.dropdown_div = html.Div([self.dropdown])
+        self.input_transformer_method = lambda v: v[-1]
+        self.dcc_id = f'{component_id}_dropdown_output'
+        self.dcc_store = dcc.Store(id=self.dcc_id)
+        output_tuples = [(self.dcc_id,'data'),(self.dropdown.id,'options')]
+        
+        # assign or create the method that dynamically creates dropdown choices
+        self.choices_transformer_method = choices_transformer_method
+        if choices_transformer_method is None:
+            self.choices_transformer_method = lambda _: self.dropdown_choices
+
+        
+        self.fd_div = html.Div([self.dropdown_div,self.dcc_store])
+        self.current_value = None
+        def _create_transformer_lambda(choices_transformer_method,component_id,logger):            
+            def _dropdown_transformer(v):
+                logger.debug(f'_dropdown_transformer {component_id} input: {v}') 
+                new_choices =  choices_transformer_method(v)
+                selected_item =  v[0]               
+                return [selected_item,new_choices]
+            return _dropdown_transformer
+
+        super(ChainedDropDownDiv,self).__init__(self.dropdown,
+                     input__tuples=input_tuples,
+                     output_tuples=output_tuples,
+                     callback_input_transformer=lambda v:[None],logger=logger)
+        
+        # use the _create_transformer_lambda to inject values into the method that the callback will use
+        dd_lam = _create_transformer_lambda(self.choices_transformer_method,self.component_id,self.logger)
+        # set the callback method (after the parent ComponentWrapper has been instantiated
+        self.callback_input_transformer = dd_lam
+
+    @ComponentWrapper.html.getter
+    def html(self):
+        return self.fd_div
+
+#**************************************************************************************************
+
 
 
 class FigureComponent(ComponentWrapper):
@@ -966,6 +1071,12 @@ class StoreComponent(ComponentWrapper):
                  initial_data = None,
                  logger=None):
         
+        if type(input_component)==type([]):
+            # in this case, input_component is a list of tuples
+            input_tuples = input_component
+        else:
+            input_tuples = [(input_component.id,input_component_property)]
+        
         dcc_store = dcc.Store(id=component_id,data=[] if initial_data is None else [initial_data])
         
         def _create_callback_lambda(component_id,_input_transformer,logger,**kwargs):
@@ -988,7 +1099,8 @@ class StoreComponent(ComponentWrapper):
         
         # do super
         super(StoreComponent,self).__init__(dcc_store,
-                     input__tuples=[(input_component.id,input_component_property)],
+#                      input__tuples=[(input_component.id,input_component_property)],
+                     input__tuples=input_tuples,
                      output_tuples=[(component_id,'data')],
                      callback_input_transformer = lambda v: [None],
                      style={'display':'none'},
@@ -996,6 +1108,11 @@ class StoreComponent(ComponentWrapper):
         
         self.callback_input_transformer  = _create_callback_lambda(component_id,
                                 create_data_dictionary_from_df_transformer, self.logger) 
+        self.dcc_store = dcc_store
+        
+    @ComponentWrapper.html.getter
+    def html(self):
+        return dcc.Loading(children=[self.dcc_store],type='cube')
 
 class FiledownloadComponent(ComponentWrapper):
     def __init__(self,component_id,
@@ -1107,17 +1224,16 @@ class FileDownLoadDiv():
         return download_csv
 
 
-def make_app(app_component_list,grid_template_columns_list=None,app=None):
-    components_with_callbacks = []
-    layout_components = []
-    
-    # get layout template list (lot)
-    default_gtcl = ('1fr '* len(app_component_list))[:-1]
-    gtcl = default_gtcl if grid_template_columns_list is None else grid_template_columns_list
-    
+def recursive_grid_layout(app_component_list,current_component_index,gtcl,layout_components,wrap_in_loading_state=False):
     # loop through the gtcl, and assign components to grids
-    current_component_index = 0
     for grid_template_columns in gtcl:
+        if type(grid_template_columns)==list:
+            layout_components.append(recursive_grid_layout(
+                app_component_list,current_component_index, grid_template_columns, 
+#                 layout_components,wrap_in_loading_state=True))
+                layout_components,wrap_in_loading_state=False))
+            continue
+        # if this grid_template_columns item is NOT a list, process it normally
         sub_list_grid_components = []
         num_of_components_in_sublist = len(grid_template_columns.split(' '))
         for _ in range(num_of_components_in_sublist):
@@ -1128,9 +1244,28 @@ def make_app(app_component_list,grid_template_columns_list=None,app=None):
                 layout_ac = layout_ac.html
             sub_list_grid_components.append(layout_ac)
             current_component_index +=1
-        new_grid = create_grid(sub_list_grid_components, additional_grid_properties_dict={'grid-template-columns':grid_template_columns})
+        new_grid = create_grid(sub_list_grid_components, 
+                        additional_grid_properties_dict={'grid-template-columns':grid_template_columns},
+                        wrap_in_loading_state=wrap_in_loading_state)
         layout_components.append(new_grid)
+
+
+
+def make_app(app_component_list,grid_template_columns_list=None,app=None):
+    components_with_callbacks = []
+    layout_components = []
     
+    # get layout template list (lot)
+    default_gtcl = ('1fr '* len(app_component_list))[:-1]
+    gtcl = default_gtcl if grid_template_columns_list is None else grid_template_columns_list
+    
+    # populate layout_components using recursive algo
+    recursive_grid_layout(app_component_list,0,gtcl,layout_components)
+    ret_app =   dash.Dash() if app is None else app
+    ret_app.layout = html.Div(layout_components,style={'margin-left':'10px','margin-right':'10px'})
+    
+    ret_app =   dash.Dash() if app is None else app
+    ret_app.layout = html.Div(layout_components,style={'margin-left':'10px','margin-right':'10px'})
 
     for ac in app_component_list:
         if hasattr(ac, 'route'):
@@ -1142,5 +1277,32 @@ def make_app(app_component_list,grid_template_columns_list=None,app=None):
     [c.callback(ret_app) for c in components_with_callbacks]
     return ret_app
         
+def make_multi_page_app(page_dict,app=None):
+    layout_dict = {}
+    ret_app =   dash.Dash() if app is None else app
+    ret_app.config.suppress_callback_exceptions = True
 
+    for page_address in page_dict.keys():
+        page_sub_dict = page_dict[page_address]
+        grid_template_columns_list = page_sub_dict['gtcl']
+        app_component_list = page_sub_dict['app_component_list']
+        make_app(app_component_list,
+                            grid_template_columns_list,ret_app)
+        layout_dict[page_address] = ret_app.layout
+        ret_app.layout=html.Div()
+     
+    ret_app.layout = html.Div([
+        dcc.Location(id='url',refresh=False),
+        html.Div(id='page_content')])
+    
+    @ret_app.callback(
+        Output('page_content', 'children'),
+        [Input('url', 'pathname')])
+    def display_page(pathname):
+#         return 'hello world'
+        ret_layout = layout_dict[pathname]
+        return ret_layout
+    
+    return ret_app
+    
 
