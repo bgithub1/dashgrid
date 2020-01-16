@@ -119,7 +119,7 @@ logger = dgc.init_root_logger('logfile.log','INFO')
 # In[ ]:
 
 
-DEFAULT_CONFIGS = {"PATH_DATA_HOME":"../../barchartacs/barchartacs/temp_folder",
+DEFAULT_CONFIGS = {"PATH_DATA_HOME":"./",
                   "host":"127.0.0.1",
                   "port":8550,
                   "url_base_pathname":"futskew"}
@@ -413,10 +413,10 @@ app.run_server(host=configs['host'],port=int(str(configs['port'])))
 
 # ### Uncomment out the cell below to create a .py file to run this code on a server
 
-# In[2]:
+# In[ ]:
 
 
-get_ipython().system('jupyter nbconvert --to script dgrid_components_futures_skew_example_app.ipynb')
+# !jupyter nbconvert --to script dgrid_components_futures_skew_example_app.ipynb
         
 
 
