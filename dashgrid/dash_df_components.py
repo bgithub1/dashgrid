@@ -768,8 +768,12 @@ class UploadFileNameDiv(DivComponent):
 
     
 class DashTableComponent(ComponentWrapper):
-    def __init__(self,component_id,df_initial,input_component=None,title=None,
-                 transform_input=None,editable_columns=None,style=None,logger=None,
+    def __init__(self,component_id,
+                 input_components,
+                 input_callback,
+                 df_initial=None,
+                 title=None,
+                 editable_columns=None,style=None,logger=None,
                  columns_to_round=None,digits_to_round=2,title_style=None):
         
         self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
@@ -782,17 +786,7 @@ class DashTableComponent(ComponentWrapper):
         
         
         default_data_store = []
-        if input_component is None:
-            dcs_id = f'{component_id}_default_store'
-#             dcs_data = None if df_initial is None else df_initial.to_dict('rows')
-            dcs_data = None if df_initial is None else df_initial.to_dict()
-            default_data_store.append(dcc.Store(id=dcs_id,data=dcs_data))
-            input_tuples = [(dcs_id,'data')]
-        else:
-            if type(input_component) == list:
-                input_tuples = [ic.output_data_tuple for ic in input_component]
-            else:
-                input_tuples = [input_component.output_data_tuple]
+        input_tuples = [input_components.output_data_tuple]
         
         # create initial div
         cols = None if df_initial is None else df_initial.columns.values
