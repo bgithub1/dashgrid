@@ -261,3 +261,134 @@ class TextBoxInput(dgc.InputBox):
     def __init__(self,component_id,**kwargs):
         super(TextBoxInput,self).__init__(component_id,kwargs)
         self.initial_data = self.input_component.placeholder              
+
+DEFAULT_COMPONENT_TRANSFORM_DICT = {
+    type(TableInput('__id0000__')):dgc.make_df,
+    type(TextBoxInput('__id1111')):str
+}
+
+
+class VariableRowDiv():
+    def __init__(self,
+            app_id,
+            input_component_list,
+            app_callback,
+            repeating_row_component_template,
+            repeating_row_layout_template,
+            component_transform_dict=None,
+            logger=None):
+        #
+        self.app_id = app_id
+        self.logger = logger if logger is not None else dgc.init_root_logger('logfile.log','INFO')
+        self.app_callback = app_callback
+        ctd = DEFAULT_COMPONENT_TRANSFORM_DICT
+        if component_transform_dict is not None:
+            ctd.update(component_transform_dict)
+        self.repeating_row_component_template = repeating_row_component_template
+        self.repeating_row_layout_template = repeating_row_layout_template
+        #
+        input_comps = input_component_list
+        storage_input_tuples = [ic.output_data_tuple for ic in input_comps]
+        ic_types = [type(ic) for ic in input_comps]
+        ic_ids = [ic.component_id for ic in input_comps]
+        stm = self.store_transform_closure(ic_ids,ic_types,ctd,self.logger)
+        #
+        self.storage_comp = dgc.StoreComponent(f'store_comp_{self.app_id}',
+                storage_input_tuples,
+                create_data_dictionary_from_df_transformer=lambda v:v,
+                initial_data={})
+        
+        mcc = self.make_comps_closure(self.app_callback,
+                     self.repeating_row_component_template,
+                     self.repeating_row_layout_template,
+                     stm,self.logger)
+        self.content_div = dgc.DivComponent('variable_content',
+                    input_component=[self.storage_comp.output_data_tuple],
+                    callback_input_transformer=lambda input_list:mcc(input_list),
+                    logger=self.logger)
+        #
+        self.final_components = [self.content_div,self.storage_comp]
+        self.final_layout = ['1fr', '0%']
+
+    def store_transform_closure(self,input_comp_ids,input_comp_types,transform_dict,logger):
+        def _store_transform(input_list):
+            if len(input_list)<1:
+                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',logger)            
+            if input_list[0] is None:
+                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',logger)            
+            output_dict = {}
+            for i in range(len(input_list)):
+                il = input_list[i]
+                ict = input_comp_types[i]
+                conv_method = str
+                conv_key = ict
+                if conv_key in transform_dict.keys():
+                    conv_method = transform_dict[conv_key]
+                else:
+                    logger.warn(f'store_transform unexpected conv_key: {conv_key}')
+                conv_data = None if il is None else conv_method(il)
+                cid = input_comp_ids[i]
+                output_dict[cid] = conv_data
+            return output_dict
+        return _store_transform
+            
+            
+    def make_comps_closure(self,callback,row_comps,row_layout,data_converter,logger):
+        def make_comps(input_list):
+            input_dict = data_converter(input_list[0])
+            if len(input_dict)<1:
+                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',logger)            
+
+            row_data = callback(input_dict)
+            if row_data is None:
+                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',logger)            
+
+            all_comps = []
+            gc_list = []
+            for i in range(len(row_data)):
+                data_for_this_row = row_data[i]
+                for j in range(len(row_comps)):
+                    comp = row_comps[j] 
+                    cid = f'r{i+1}c{j+1}'
+                    c = comp.clone(cid,initial_data=row_data[i][j],title=cid)
+                    all_comps.append(c)
+                gc_list.append(row_layout)
+            html_grid = dgc.create_grid(all_comps,len(row_comps))
+            return [html_grid]
+        return make_comps
+
+
+# This Markdown component allows you to use markdown in html divs
+# create row 1
+class MarkdownLine(dgc.dcc.Markdown):
+    def __init__(self,
+            markdown_text,
+            text_size = 0,
+            text_color='white',
+            text_align='center',
+            component_id=None):
+        h_string = ''.join(['#' for c in range(text_size)])
+        mstring = f'{h_string} {markdown_text}'
+        super(MarkdownLine,self).__init__(
+            mstring,id=component_id,
+            style={'color':text_color,'textAlign': text_align,})
+                   
+                   
+class MarkdownDiv(html.Div):
+    def __init__(self,component_id,
+                markdown_children_list,
+                background_color='#47bacc',
+                vertical_align='middle',
+                border_style=dgc.border_style,
+                line_height='20px',logger=None):
+        mstyle={
+            'line-height': line_height,
+            'background-color':background_color,
+            'vertical-align':vertical_align,
+            'border-style':border_style
+        } 
+        super(MarkdownDiv,self).__init__(markdown_children_list,
+                    id=component_id,
+                    style=mstyle)
+
+
