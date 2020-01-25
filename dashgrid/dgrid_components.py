@@ -16,7 +16,7 @@ import datetime,base64,io,pytz
 
 import dash_html_components as html
 import dash_core_components as dcc
-from dash.dependencies import Input, Output#,State
+from dash.dependencies import Input, Output,State
 from dash.exceptions import PreventUpdate
 import dash_table
 import pandas as pd
@@ -600,6 +600,16 @@ def flatten_layout(app):
     
     # return results
     return final_list
+
+
+def inputs_are_ok(input_list):
+    is_none = input_list is None
+    is_len_zero = len(input_list)<1
+    is_all_none = len([input_list[i] for i in range(len(input_list)) if input_list[i] is not None])
+    all_conditions = all([is_none,is_len_zero,is_all_none])
+    return not all_conditions
+    
+
     
 # ***************************************** Define main dash core and html component wrapper ***********************************
 class  ComponentWrapper():
@@ -696,6 +706,45 @@ def stop_callback(errmess,logger=None):
 #     raise ValueError(m)
 # ************************ Define the classes that inherit dgrid.ComponentWrapper ************************
 
+class ReactiveDiv(ComponentWrapper):
+    def __init__(self,html_id,input_tuple,
+                 input_transformer=None,display=True,
+                 dom_storage_dict=None,
+                 style=None):
+        self.html_id = html_id
+        self.input_tuple = input_tuple
+        s = button_style if style is None else style
+
+        self.dom_storage_id = f'reactive_div_dom_storage_{self.html_id}'
+        self.dom_storage_dict = {} if dom_storage_dict is None else dom_storage_dict
+        self.dom_storage = dcc.Store(id=self.dom_storage_id,storage_type='session',data=self.dom_storage_dict)
+        if display:
+            self.div = dcc.Loading(children=[html.Div([],id=self.html_id,style=s),self.dom_storage],type='cube')
+        else:
+            self.div = html.Div([html.Div([],id=self.html_id,style={'display':'none'}),self.dom_storage])
+
+        self.input_transformer = input_transformer 
+        if self.input_transformer is None:
+            self.input_transformer = lambda value,data: str(value)
+        
+        
+    @property
+    def html(self):
+        return self.div        
+    
+    def callback(self,theapp):
+        @theapp.callback(
+            Output(self.html_id,'children'),
+            [Input(self.input_tuple[0],self.input_tuple[1])],
+            [State(self.dom_storage_id,'data')]
+        )
+        def update_div(value,data):
+            print('entering ReactiveDiv callback')
+            d = self.dom_storage_dict if len(data)<=0 else data
+            return self.input_transformer(value,d)        
+        return update_div    
+    
+
 class DivComponent(ComponentWrapper):
     def __init__(self,component_id,input_component=None,
                  input_component_property='data',
@@ -706,7 +755,13 @@ class DivComponent(ComponentWrapper):
         init_children = '' if initial_children is None else initial_children
         h1 = html.Div(init_children,id=component_id,style=s)
         h1_lambda = (lambda v:[v]) if callback_input_transformer is None else callback_input_transformer
-        input_tuple = None if input_component is None else [(input_component.id,input_component_property)]
+        input_tuple = None
+        if input_component is not None:
+            if type(input_component) == list:
+                input_tuple = input_component
+            else:
+                input_tuple = [(input_component.id,input_component_property)]
+                
         super(DivComponent,self).__init__(
                     h1,input__tuples=input_tuple,
                     output_tuples=[(h1.id,'children')],
@@ -904,12 +959,14 @@ class XyGraphComponent(ComponentWrapper):
             def gr_lambda(value_list): 
                 logger.debug(f'{component_id} gr_lambda value_list: {value_list}')
                 ret = [None]
+                df = None
                 try:
                     if value_list is not None and len(value_list)>0 and value_list[0] is not None:
                         if transform_input is not None:
                             df = transform_input(value_list[0])
                         else:
-                            df = make_df(value_list[0])
+                            if value_list is not None and len(value_list)>0 and len(value_list[0])>0:
+                                df = make_df(value_list[0])
                         if df is not None:
                             fig = plotly_plot(df,x_column,
                                     plot_title=plot_title,bar_plot=plot_bars,marker_color=marker_color)
@@ -936,6 +993,41 @@ class XyGraphComponent(ComponentWrapper):
         gr_lam = _create_gr_lambda(self.component_id,x_column,t,self.logger,transform_input=transform_input)
         self.callback_input_transformer = gr_lam
         
+#**************************************************************************************************
+ALLOWED_INPUT_TYPES = (
+    "text", "number", "password", "email", "search",
+    "tel", "url", "range", "hidden",
+)
+class InputBox(ComponentWrapper):
+    def __init__(self,component_id,input_type='text',init_value=1,style=None,logger=None):
+        '''
+        
+        :param component_id:
+        :param input_type: one of "text", "number", "password", "email", "search","tel", "url", "range", "hidden"
+        :param init_value: 
+        :param style:
+        :param logger:
+        '''
+        self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
+
+        # add component_id to self
+        self.component_id = component_id
+        self.style = button_style if style is None else style
+        # define callback input as input value
+        input_tuples = []
+        self.input_component = dcc.Input(id=component_id, type=input_type, 
+                placeholder=init_value, debounce=True)
+#         self.div_id = f'{self.component_id}_div'
+#         self.output_div = html.Div([self.input_component],id=self.div_id)
+        output_tuples = [(self.component_id,'value')]
+        super(InputBox,self).__init__(self.input_component,
+                     input__tuples=input_tuples,
+                     output_tuples=output_tuples,
+                     callback_input_transformer=lambda v:[None],logger=logger)
+        self.output_data_tuple = (self.component_id,'value')
+    
+#**************************************************************************************************
+
 #**************************************************************************************************
 class ChainedDropDownDiv(ComponentWrapper):
     def __init__(self,component_id,
@@ -1112,6 +1204,10 @@ class StoreComponent(ComponentWrapper):
         self.callback_input_transformer  = _create_callback_lambda(component_id,
                                 create_data_dictionary_from_df_transformer, self.logger) 
         self.dcc_store = dcc_store
+        if self.output_data_tuple is None:
+            self.output_data_tuple = (component_id,'data')
+        self.logger.info(f'StoreComponent self.output_data_tuple {self.output_data_tuple}')
+            
         
     @ComponentWrapper.html.getter
     def html(self):
