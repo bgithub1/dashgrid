@@ -142,12 +142,19 @@ class GridItem():
         else:
             return html.Div(children=self.child,className='grid-item')
 
-def create_grid(component_array,num_columns=2,column_width_percents=None,additional_grid_properties_dict=None,
-                wrap_in_loading_state=False):
+def create_grid(
+        component_array,num_columns=2,
+        column_width_percents=None,
+        additional_grid_properties_dict=None,
+        wrap_in_loading_state=False,
+        row_layout=None):
     gs = grid_style.copy()
-    percents = [str(round(100/num_columns-.001,1))+'%' for _ in range(num_columns)] if column_width_percents is None else [str(c)+'%' for c in column_width_percents]
-    perc_string = " ".join(percents)
-    gs['grid-template-columns'] = perc_string 
+    if row_layout is None:
+        percents = [str(round(100/num_columns-.001,1))+'%' for _ in range(num_columns)] if column_width_percents is None else [str(c)+'%' for c in column_width_percents]
+        perc_string = " ".join(percents)
+        gs['grid-template-columns'] = perc_string 
+    else:
+        gs['grid-template-columns'] = row_layout
     if additional_grid_properties_dict is not None:
         for k in additional_grid_properties_dict.keys():
             gs[k] = additional_grid_properties_dict[k]           
@@ -1104,8 +1111,112 @@ class ChainedDropDownDiv(ComponentWrapper):
     def html(self):
         return self.fd_div
 
-#**************************************************************************************************
+#***************************************** MultiDropdownDiv *****************************************
+def sl_closure(cols_to_use,index_of_col_to_select,df,component_id,logger):
+    def slice_loop(input_list):
+        # Step 01: the inputs come in a "funny" order:
+        #   -- First, input_list[0] is the current dropdown's current selected item
+        #   -- Second, input_list[1:] are the other other inputs
+#         print(component_id,input_list)
+        # Step 02: get a copy of the DataFrame from which you will slice inputs
+        dfc = df[cols_to_use].drop_duplicates().copy()
+        current_input = 0
+        for il in input_list[1:]:
+            if il is not None:
+                dfc = dfc[dfc[cols_to_use[current_input]]==il]
+            current_input += 1
+        unique_values = dfc[cols_to_use[index_of_col_to_select]].unique()
+        choices = [{'label':uv,'value':uv} for uv in unique_values]
+        return choices
+    
+    return slice_loop
 
+class MultiDropdownDiv(DivComponent):
+    # styles
+    # Create css styles for some parts of the display
+    STYLE_TITLE={
+        'line-height': '20px',
+        'borderWidth': '1px',
+        'borderStyle': 'dashed',
+        'borderRadius': '1px',
+        'textAlign': 'center',
+        'background-color':'#21618C',
+        'color':'#FFFFF9',
+        'vertical-align':'middle',
+    } 
+    
+    
+    STYLE_UPGRID = STYLE_TITLE.copy()
+    STYLE_UPGRID['background-color'] = '#EAEDED'
+    STYLE_UPGRID['line-height'] = '10px'
+    STYLE_UPGRID['color'] = '#21618C'
+    STYLE_UPGRID['height'] = '50px'
+    
+    def __init__(self,
+                component_id,
+                df,
+                columns_to_use,
+                style=None,
+                logger=None):
+        # Step 01: save inputs
+        self.logger = init_root_logger('logfile.log','INFO') if logger is None else logger
+        self.component_id = component_id
+        self.columns_to_use = columns_to_use
+        # Step 02:  intialize the list of dropdown components that go in the div
+        self.dropdown_list = []
+        # Step 03:  set to all None, and during loop, replace None with
+        initial_placeholders = [] 
+        # Step 04:  loop through each column, making an instance of dgc.ChainedDropDownDiv 
+        for i in range(len(self.columns_to_use)):
+            # create a unique id for each dgc.ChainedDropDownDiv
+            cc_component_id = f'{component_id}_{i}'
+            # use sl_closure to generate a callback for each dgc.ChainedDropDownDiv
+            syt = sl_closure(self.columns_to_use,i,df,cc_component_id,logger)
+            # call the callback once to obtain intial dropdown lists
+            initial_choices = syt([None] + initial_placeholders )
+            # from initial choices, get intial labels (which will also be used as values)
+            initial_labels = [v['label'] for v in initial_choices]
+            # use the first lable as the placeholder input to each dgc.ChainedDropDownDiv
+            initial_placeholders.append(initial_labels[0])
+            # create an instance of dgc.ChainedDropDownDiv for this column in self.columns_to_use
+            cdd =  ChainedDropDownDiv(
+                cc_component_id,
+                initial_dropdown_labels = initial_labels,
+                initial_dropdown_values = initial_labels,
+                placeholder = initial_placeholders[i],
+                dropdown_input_components = self.dropdown_list.copy(),
+                choices_transformer_method=None if i<1 else syt,
+                style=MultiDropdownDiv.STYLE_UPGRID,
+                logger=logger)
+            # append the newly created instance to the instance's dropdown_list
+            self.dropdown_list.append(cdd)
+            
+        # Step 05:  use dgc.create_grid to make one html element from all of the ChainedDropDownDiv's
+        #    in self.dropdown_list
+        col_perc = round(98/len(self.dropdown_list),1)
+        column_width_percents = [col_perc for _ in range(len(self.dropdown_list))]
+#         print(f'MultiDropdownDiv column_width_percents {column_width_percents}')
+        dropdown_grid = create_grid(
+            self.dropdown_list,
+            column_width_percents=column_width_percents
+        )
+
+        # Step 06:  call super (DivComponent)
+        super(MultiDropdownDiv,self).__init__(
+            self.component_id,
+            initial_children=dropdown_grid,
+            style=style,
+            logger=logger
+        )
+        
+    # overide the callback of dgc.DivComponent so that you register all of the 
+    #   ChainedDropDownDiv's
+    def callback(self,theapp):  
+        super(MultiDropdownDiv,self).callback(theapp)
+        for d in self.dropdown_list:
+            d.callback(theapp)
+#***************************************** MultiDropdownDiv *****************************************
+            
 
 
 class FigureComponent(ComponentWrapper):

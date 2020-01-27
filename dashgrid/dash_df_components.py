@@ -238,7 +238,8 @@ class XYGraphSimple(XyGraphFromStore):
 class FigureStatic(dgc.ComponentWrapper):
     def __init__(self,component_id,
                  figure,
-                 style=None,logger=None):
+                 style=None,logger=None,
+                 **kwargs):
 
         self.logger = dgc.init_root_logger(dgc.DEFAULT_LOG_PATH, dgc.DEFAULT_LOG_LEVEL) if logger is None else logger
 
@@ -246,7 +247,8 @@ class FigureStatic(dgc.ComponentWrapper):
         self.component_id = component_id
         gr_html = dgc.make_chart_html(component_id,None,None)
         self.figure = figure
-
+        if 'initial_data' in kwargs.keys():
+            self.figure = kwargs['initial_data']
         # set the outer html id
         gr_html.style = dgc.border_style if style is None else style
         
@@ -264,7 +266,8 @@ class TextBoxInput(dgc.InputBox):
 
 DEFAULT_COMPONENT_TRANSFORM_DICT = {
     type(TableInput('__id0000__')):dgc.make_df,
-    type(TextBoxInput('__id1111')):str
+    type(TextBoxInput('__id1111')):str,
+    type(FigureStatic('__id1112',None)):dgc.make_df,
 }
 
 
@@ -353,7 +356,8 @@ class VariableRowDiv():
                     c = comp.clone(cid,initial_data=row_data[i][j],title=cid)
                     all_comps.append(c)
                 gc_list.append(row_layout)
-            html_grid = dgc.create_grid(all_comps,len(row_comps))
+#             html_grid = dgc.create_grid(all_comps,len(row_comps))
+            html_grid = dgc.create_grid(all_comps,row_layout==row_layout)
             return [html_grid]
         return make_comps
 
