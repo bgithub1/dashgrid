@@ -30,7 +30,11 @@ import dash
 import flask
 import logging
 
-def init_root_logger(logfile='logfile.log',logging_level='INFO'):
+
+DEFAULT_LOG_PATH = './logfile.log'
+DEFAULT_LOG_LEVEL = 'INFO'
+
+def init_root_logger(logfile=DEFAULT_LOG_PATH,logging_level=DEFAULT_LOG_LEVEL):
     level = logging_level
     if level is None:
         level = logging.DEBUG
@@ -54,8 +58,6 @@ def init_root_logger(logfile='logfile.log',logging_level='INFO'):
     logger.addHandler(ch)   
     return logger
 
-DEFAULT_LOG_PATH = './logfile.log'
-DEFAULT_LOG_LEVEL = 'DEBUG'
 
 #**************************************************************************************************
 
@@ -141,6 +143,7 @@ class GridItem():
             return html.Div(children=self.child,className='grid-item',id=self.html_id)
         else:
             return html.Div(children=self.child,className='grid-item')
+import inspect
 
 def create_grid(
         component_array,num_columns=2,
@@ -159,7 +162,11 @@ def create_grid(
         for k in additional_grid_properties_dict.keys():
             gs[k] = additional_grid_properties_dict[k]           
 #     g =  html.Div([GridItem(c).html if type(c)==str else c.html for c in component_array], style=gs)
-
+    
+    caller = inspect.stack()[1][3]
+#     if 'make_comps' in str(caller):
+#         print(f'create_grid caller {inspect.stack()[1][3]}')
+#         print(f'create_grid gs {gs}')
     div_children = []
     for c in component_array:
         if type(c)==str:
@@ -405,7 +412,7 @@ def plotly_plot(df_in,x_column,plot_title=None,
     fig = go.Figure(data=data,layout=layout)
     return fig
 
-def make_chart_html(figure_id,df,x_column,**kwdargs):
+def make_chart_html(figure_id,df,x_column,static_figure=None,**kwdargs):
     '''
     Create a dash_html_components.Div wrapper of the dash_core_components.Graph instance.
     
@@ -415,9 +422,12 @@ def make_chart_html(figure_id,df,x_column,**kwdargs):
                     plotly.graph_objs.Graph figure.
     :param x_column:    Column that holds x values, used in call to plotly_plot.
     '''
-    f = go.Figure()
-    if df is not None and len(df)>0:
-        f = plotly_plot(df,x_column,**kwdargs)
+    if static_figure is not None:
+        f = static_figure
+    else:
+        f = go.Figure()
+        if df is not None and len(df)>0:
+            f = plotly_plot(df,x_column,**kwdargs)
     gr = dcc.Graph(
             id=figure_id,
             figure=f,               
@@ -1159,7 +1169,7 @@ class MultiDropdownDiv(DivComponent):
                 style=None,
                 logger=None):
         # Step 01: save inputs
-        self.logger = init_root_logger('logfile.log','INFO') if logger is None else logger
+        self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
         self.component_id = component_id
         self.columns_to_use = columns_to_use
         # Step 02:  intialize the list of dropdown components that go in the div
@@ -1217,8 +1227,6 @@ class MultiDropdownDiv(DivComponent):
             d.callback(theapp)
 #***************************************** MultiDropdownDiv *****************************************
             
-
-
 class FigureComponent(ComponentWrapper):
     def __init__(self,component_id,
                  input_component,
@@ -1230,8 +1238,13 @@ class FigureComponent(ComponentWrapper):
 
         # add component_id and html_id to self
         self.component_id = component_id
-        gr_html = make_chart_html(component_id,None,None)
         self.figure = figure
+        if figure is not None:
+            gr_html = make_chart_html(component_id,None,None,static_figure=figure)
+        else:
+            gr_html = make_chart_html(component_id,None,None)
+        
+        input_tuples = [] if input_component is None else [(input_component.id,input_component_property)]
         
         def _create_gr_lambda(component_id,_figure_from_df_transformer,logger,hard_coded_figure=None):
             def gr_lambda(value_list): 
@@ -1258,14 +1271,17 @@ class FigureComponent(ComponentWrapper):
         
         # do super, but WITHOUT the callback
         super(FigureComponent,self).__init__(gr_html,
-                     input__tuples=[(input_component.id,input_component_property)],
+                     input__tuples=input_tuples,
                      output_tuples=[(self.component_id,'figure')],
                      callback_input_transformer=lambda v:[None])
         
-        # define callback so that it includes self.logger
-        gr_lam = _create_gr_lambda(self.component_id,create_figure_from_df_transformer,
-                                   self.logger)
-        self.callback_input_transformer = gr_lam
+        # if the caller has not created a hard coded figure, then do the below callback creation
+        if self.figure is None:
+            # define callback so that it includes self.logger
+            gr_lam = _create_gr_lambda(self.component_id,create_figure_from_df_transformer,
+                                        self.logger
+                                        ,hard_coded_figure=self.figure)
+            self.callback_input_transformer = gr_lam
 
 
 
@@ -1466,7 +1482,8 @@ def make_app(app_component_list,grid_template_columns_list=None,app=None):
     layout_components = []
     
     # get layout template list (lot)
-    default_gtcl = ('1fr '* len(app_component_list))[:-1]
+#     default_gtcl = ('1fr '* len(app_component_list))[:-1]
+    default_gtcl = ' '.join(['1fr' for _ in range(len(app_component_list))])
     gtcl = default_gtcl if grid_template_columns_list is None else grid_template_columns_list
     
     # populate layout_components using recursive algo

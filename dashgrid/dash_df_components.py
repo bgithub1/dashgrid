@@ -21,7 +21,8 @@ if  not os.path.abspath('../') in sys.path:
 from dashgrid import dgrid_components as dgc
 import dash_html_components as html
 import pandas as pd
-import traceback
+# import traceback
+# import pdb
 
 # ***************************************** Define input components ***********************************
 
@@ -54,14 +55,6 @@ class ComponentFromStore(dgc.ComponentWrapper):
                     style=None if 'style' not in kwargs.keys() else kwargs['style'],
                     logger = None if 'logger' not in kwargs.keys() else kwargs['logger'])
     
-#     def clone(self,component_id,input_storage_component=None,
-#               output_callback=None,**kwargs):
-#         icp = self.input_storage_component if input_storage_component is None else input_storage_component
-#         oc = self.output_callback if output_callback is None else output_callback
-#         kwa = self.kwargs if (kwargs is None) or (len(kwargs)<1) else kwargs
-#         arglist = [self.component,component_id,icp,oc,kwa]
-#         c = ComponentFromStore(arglist)
-#         return c
     
 # ***************************************** Define components from store components ***********************************
 def dataframe_from_storage(input_list_with_storage_dict,storage_key,component_id=''):
@@ -84,15 +77,16 @@ def dataframe_from_storage(input_list_with_storage_dict,storage_key,component_id
 
 class TableFromStore(ComponentFromStore):
     def __init__(self,component_id,
-                 input_storage_component,
-                 storage_key,
-                 initial_data=None,
-                 title=None,
-                 editable_columns=None,
-                 style=None,logger=None,
-                 columns_to_round=None,
+                 input_storage_component:dgc.ComponentWrapper,
+                 storage_key:str,
+                 initial_data:pd.DataFrame=None,
+                 title:str=None,
+                 editable_columns:list=None,
+                 style:dict=None,
+                 logger:dgc.logging.Logger=None,
+                 columns_to_round:list=None,
                  digits_to_round=2,
-                 title_style=None):
+                 title_style:dict=None):
         
 #         self.logger = dgc.init_root_logger(dgc.DEFAULT_LOG_PATH, dgc.DEFAULT_LOG_LEVEL) if logger is None else logger
         self.html_id = component_id+'_html'
@@ -153,7 +147,7 @@ class TableFromStore(ComponentFromStore):
             
 
 class TableInput(TableFromStore):
-    def __init__(self,component_id,
+    def __init__(self,component_id:str,
                  initial_data=None,
                  **kwargs):
         self.kwargs_for_clone = kwargs.copy()
@@ -161,24 +155,45 @@ class TableInput(TableFromStore):
         super(TableInput,self).__init__(component_id, None, None,initial_data=initial_data,**kwargs)
 
     def clone(self,component_id,**kwargs):
+        if kwargs is not None:
+            print(f'TableInput.clone kwargs: {kwargs.keys()}')
         new_kwargs = kwargs.copy()        
         for kwa in self.kwargs_for_clone.keys():
             if kwa not in new_kwargs.keys():
                 new_kwargs[kwa] = self.kwargs_for_clone[kwa]
         return TableInput(component_id,**new_kwargs)
+    
+
         
 # ************************ Define the classes that inherit dgrid.ComponentWrapper ************************
+def make_col_args(df,y_left_label=None,y_right_label=None,use_yaxis2=False):
+    if df is None:
+        return {a:None for a in ['x_column','yaxis2_cols','y_left_label','y_right_label']}
+    cols = df.columns.values
+    x_col = cols[0]
+    yaxis2_cols = None
+    yll = cols[1] + ' values' if y_left_label is None else y_left_label
+    yrl = y_right_label
+    if len(cols)>2 and use_yaxis2:
+        yaxis2_cols = cols[2:]
+        if yrl is None:
+            yrl = ','.join(yaxis2_cols) + ' values'
+    return {'x_column':x_col,'yaxis2_cols':yaxis2_cols,'y_left_label':str(yll),'y_right_label':yrl}    
 
 class XyGraphFromStore(ComponentFromStore):
     def __init__(self,component_id,
                  input_storage_component,
                  storage_key,
-                 x_column,
+                 x_column=None,
                  initial_data=None,
                  title=None,
                  plot_bars=False,
+                 y_left_label=None,
+                 y_right_label=None,
+                 use_yaxis2=False,
                  logger=None,
                  marker_color=None,
+                 number_of_ticks_display=20,
                  style=None):
         
 #         self.logger = dgc.init_root_logger(dgc.DEFAULT_LOG_PATH, dgc.DEFAULT_LOG_LEVEL) if logger is None else logger
@@ -187,26 +202,67 @@ class XyGraphFromStore(ComponentFromStore):
         
         # add component_id and html_id to self
         self.component_id = component_id
-        gr_html = dgc.make_chart_html(component_id,initial_data,
-                    x_column,plot_title=self.plot_title,marker_color=marker_color,bar_plot=plot_bars)
+#         gr_html = dgc.make_chart_html(component_id,initial_data,
+#                     x_column,plot_title=self.plot_title,marker_color=marker_color,bar_plot=plot_bars)
+        
+        col_args =  make_col_args(initial_data,y_left_label=y_left_label,
+                        y_right_label=y_right_label,use_yaxis2=use_yaxis2) 
+    
+        gr_html = dgc.make_chart_html(
+            component_id,
+            initial_data,
+            col_args['x_column'],
+            yaxis2_cols=col_args['yaxis2_cols'],
+            y_left_label=col_args['y_left_label'],
+            y_right_label=col_args['y_right_label'],
+            plot_title=title,
+            bar_plot=plot_bars,
+            number_of_ticks_display=number_of_ticks_display,
+            marker_color=marker_color)
+            
         self.plot_bars = plot_bars
         self.storage_key = storage_key
         # set the outer html id
         gr_html.style = dgc.border_style if style is None else style
         
-        def callback_closure():
+        def callback_closure(x_column=col_args['x_column'],
+            yaxis2_cols=col_args['yaxis2_cols'],
+            y_left_label=col_args['y_left_label'],
+            y_right_label=col_args['y_right_label'],
+            plot_title=title,
+            bar_plot=plot_bars,
+            number_of_ticks_display=number_of_ticks_display,
+            marker_color=marker_color):
+        
             def callback_from_storage(input_list_with_storage_dict):
 #                     return [None]
                 df = dataframe_from_storage(input_list_with_storage_dict,self.storage_key,self.component_id)
                 if df is None:
                     err_mess = f'{component_id} gr_lambda IGNORING callback. NO ERROR'
                     dgc.stop_callback(err_mess,self.logger)
-                fig = dgc.plotly_plot(df,x_column,
-                        plot_title=self.plot_title,bar_plot=plot_bars,marker_color=marker_color)
+#                 fig = dgc.plotly_plot(df,x_column,
+#                         plot_title=self.plot_title,bar_plot=plot_bars,marker_color=marker_color)
+                fig = dgc.plotly_plot(df,
+                                      x_column,yaxis2_cols=yaxis2_cols,
+                                      y_left_label=y_left_label,
+                                      y_right_label=y_right_label,
+                                      plot_title=plot_title,
+                                      bar_plot=bar_plot,
+                                      number_of_ticks_display=number_of_ticks_display,
+                                      marker_color=marker_color)
                 ret =  [fig]
                 return ret
             return callback_from_storage   
-                
+        cb = callback_closure(
+            col_args['x_column'],
+            yaxis2_cols=col_args['yaxis2_cols'],
+            y_left_label=col_args['y_left_label'],
+            y_right_label=col_args['y_right_label'],
+            plot_title=title,
+            bar_plot=plot_bars,
+            number_of_ticks_display=number_of_ticks_display,
+            marker_color=marker_color)
+        
         super(XyGraphFromStore,self).__init__(
                     gr_html,
                     component_id,
@@ -234,30 +290,46 @@ class XYGraphSimple(XyGraphFromStore):
             if kwa not in new_kwargs.keys():
                 new_kwargs[kwa] = self.kwargs_for_clone[kwa]
         return XYGraphSimple(component_id,**new_kwargs)
-                
-class FigureStatic(dgc.ComponentWrapper):
+            
+class FigureStatic(dgc.FigureComponent):
     def __init__(self,component_id,
                  figure,
                  style=None,logger=None,
                  **kwargs):
 
+        self.kwargs_for_clone = kwargs.copy()
+        self.kwargs_for_clone['figure'] = figure
+        self.kwargs_for_clone['style'] = style
+        self.kwargs_for_clone['logger'] = logger
+        
         self.logger = dgc.init_root_logger(dgc.DEFAULT_LOG_PATH, dgc.DEFAULT_LOG_LEVEL) if logger is None else logger
 
         # add component_id and html_id to self
         self.component_id = component_id
-        gr_html = dgc.make_chart_html(component_id,None,None)
+#         gr_html = dgc.make_chart_html(component_id,None,None)
         self.figure = figure
         if 'initial_data' in kwargs.keys():
             self.figure = kwargs['initial_data']
         # set the outer html id
-        gr_html.style = dgc.border_style if style is None else style
-        
+#         gr_html.style = dgc.border_style if style is None else style
         # do super, but WITHOUT the callback
-        super(FigureStatic,self).__init__(gr_html,
-                     input__tuples=[],
-                     output_tuples=[(self.component_id,'figure')],
-                     callback_input_transformer=lambda _:[dgc.dcc.Graph(id=component_id,figure=self.figure)
-])
+#         pdb.set_trace()
+        super(FigureStatic,self).__init__(self.component_id,
+                    None,
+                    None,
+                    figure=self.figure,
+                     style=style,
+                     logger=logger)
+
+    def clone(self,component_id,**kwargs):
+        if kwargs is not None:
+            print(f'FigStatic.clone kwargs: {kwargs.keys()}')
+        new_kwargs = kwargs.copy()        
+        for kwa in self.kwargs_for_clone.keys():
+            if kwa not in new_kwargs.keys():
+                new_kwargs[kwa] = self.kwargs_for_clone[kwa]
+        return FigureStatic(component_id,**new_kwargs)
+        
         
 class TextBoxInput(dgc.InputBox):
     def __init__(self,component_id,**kwargs):
@@ -265,101 +337,181 @@ class TextBoxInput(dgc.InputBox):
         self.initial_data = self.input_component.placeholder              
 
 DEFAULT_COMPONENT_TRANSFORM_DICT = {
-    type(TableInput('__id0000__')):dgc.make_df,
-    type(TextBoxInput('__id1111')):str,
-    type(FigureStatic('__id1112',None)):dgc.make_df,
+    str(TableInput):dgc.make_df,
+    str(TextBoxInput):str,
+    str(FigureStatic):dgc.make_df,
+    str(dgc.ChainedDropDownDiv):str
 }
+
 
 
 class VariableRowDiv():
     def __init__(self,
-            app_id,
+            component_id,
             input_component_list,
             app_callback,
             repeating_row_component_template,
             repeating_row_layout_template,
             component_transform_dict=None,
             logger=None):
-        #
-        self.app_id = app_id
+        '''
+        VariableRowDiv allows you to specify a list of "example" components that will get
+          repeated in as many rows as you specify in app_callback.
+          1. The class holds an instance of dcc.Store, which gets fed data from the input_component_list.
+          2. After the dcc.Store gets updated, the user provided app_callback method gets called
+               which takes a single dict argument, and returns a 2 dimensional list of data objects
+               like DataFrames, dicts, strings, etc.  These data objects are the data that gets
+               injected into the visual components that you specify in the repeating_row_component_template
+               argument.
+        Example:  your repeating_row_component_template = [TableInput,XYGraphSimple].
+                  Your app_callback returns 6 DataFrams: [[df1, df1],[df2,df2], [df3,df3]]
+                  This will cause 3 rows to display, where each row will have a Dash Table on the
+                    left, and a Dash graph on the right
+        
+        :param component_id: id of final div
+        :param input_component_list: a list of instances derived from dgc.ComponentWrapper
+                that provide new data, and force invocation of the app_callback and page refresh
+        :param app_callback: a user supplied method that takes one argument (a dict) and returns a
+                2 dimensional array of objects that can be loaded into the components of the
+                repeating_row_component_template
+        :param repeating_row_component_template: a list - like [TableInput,XYGraphSimple] that get
+                 displayed multiple times, depending on how many inner rows get returned from
+                 app_callback
+        :param repeating_row_layout_template: a list like [['1fr 1fr']] or [['1fr'],['1fr']] that
+                 determines how the components of the repeating_row_component_template get displayed
+        :param component_transform_dict: a dictionary of component types vs methods, where each
+                 method determines how the data from app_callback get's modified before it is
+                 injected into the components of repeating_row_component_template.  If None,
+                 the DEFAULT_COMPONENT_TRANSFORM_DICT version is used
+        :param logger:
+        '''
+        # Save the input variables for later use in other methods of the class
+        # Save the id, which will be the id of the main Div that this class renders
+        self.component_id = component_id
         self.logger = logger if logger is not None else dgc.init_root_logger('logfile.log','INFO')
+        # Store the callback
         self.app_callback = app_callback
-        ctd = DEFAULT_COMPONENT_TRANSFORM_DICT
+        
+        # Initialize the component_transform_dict
+        self.component_transform_dict = DEFAULT_COMPONENT_TRANSFORM_DICT
         if component_transform_dict is not None:
-            ctd.update(component_transform_dict)
+            self.component_transform_dict.update(component_transform_dict)
         self.repeating_row_component_template = repeating_row_component_template
         self.repeating_row_layout_template = repeating_row_layout_template
-        #
-        input_comps = input_component_list
-        storage_input_tuples = [ic.output_data_tuple for ic in input_comps]
-        ic_types = [type(ic) for ic in input_comps]
-        ic_ids = [ic.component_id for ic in input_comps]
-        stm = self.store_transform_closure(ic_ids,ic_types,ctd,self.logger)
-        #
-        self.storage_comp = dgc.StoreComponent(f'store_comp_{self.app_id}',
+        
+        # Initialize the input tuple of the internal dcc.Store.
+        #  The inputs get stored in self.storage_comp.  Then, the Output of self.storage_comp  
+        #   causes the DivComponent callback (see make_component_method below) to fire, and
+        #   and to create instances of the components in repeating_row_component_template
+        self.input_component_list = input_component_list        
+        storage_input_tuples = [ic.output_data_tuple for ic in self.input_component_list]
+        self.input_component_types = [type(ic) for ic in self.input_component_list]
+        self.input_component_ids = [ic.component_id for ic in self.input_component_list]
+        
+        # the data_converter variable holds a method that will get fired when self.storage_comp get's
+        #  updated with new input 
+        self.data_converter = self.store_transform_closure()
+        # instantiate self.storage_comp
+        self.storage_comp = dgc.StoreComponent(f'store_comp_{self.component_id}',
                 storage_input_tuples,
                 create_data_dictionary_from_df_transformer=lambda v:v,
                 initial_data={})
+        # Create the method that generates renders the repeating_row_component_template in
+        #  the main DivComponent 
+        make_component_method = self.make_comps_closure()
         
-        mcc = self.make_comps_closure(self.app_callback,
-                     self.repeating_row_component_template,
-                     self.repeating_row_layout_template,
-                     stm,self.logger)
+        # Create the DivComponent, which holds all the repeated rows of repeating_row_component_template
+        #   which gets displayed in a single html div 
         self.content_div = dgc.DivComponent('variable_content',
                     input_component=[self.storage_comp.output_data_tuple],
-                    callback_input_transformer=lambda input_list:mcc(input_list),
+                    callback_input_transformer=lambda input_list:make_component_method(input_list),
                     logger=self.logger)
-        #
+        
+        # Allow a user of the class to reference the 2 components (and their layout) 
+        #  that need to be included when dgc.make_app is called
         self.final_components = [self.content_div,self.storage_comp]
         self.final_layout = ['1fr', '0%']
 
-    def store_transform_closure(self,input_comp_ids,input_comp_types,transform_dict,logger):
+    # closure that creates a method to transform an input_list of values from the input components
+    #   to an a dictionary of data, where:
+    #     1. the keys of the dictionary are the input component's component_id fields, and
+    #     2. the values of the dictionary are data types converted FROM json to something like
+    #        a string, a DataFrame, etc.
+    def store_transform_closure(self):
         def _store_transform(input_list):
+            # validate input_list
             if len(input_list)<1:
-                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',logger)            
+                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',self.logger)            
             if input_list[0] is None:
-                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',logger)            
+                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',self.logger)            
+            # initialize output dict
             output_dict = {}
+            # loop through each input json in the input_list argument
             for i in range(len(input_list)):
                 il = input_list[i]
-                ict = input_comp_types[i]
+                ict = str(self.input_component_types[i])
                 conv_method = str
                 conv_key = ict
-                if conv_key in transform_dict.keys():
-                    conv_method = transform_dict[conv_key]
+                if conv_key in self.component_transform_dict.keys():
+                    conv_method = self.component_transform_dict[conv_key]
                 else:
-                    logger.warn(f'store_transform unexpected conv_key: {conv_key}')
+                    self.logger.warn(f'store_transform unexpected conv_key: {conv_key}')
+                    self.logger.warn(self.component_transform_dict)
                 conv_data = None if il is None else conv_method(il)
-                cid = input_comp_ids[i]
+                cid = self.input_component_list[i].component_id
                 output_dict[cid] = conv_data
             return output_dict
         return _store_transform
             
-            
-    def make_comps_closure(self,callback,row_comps,row_layout,data_converter,logger):
+    # this closure returns a method that assembles all of the rows of output component 
+    #   in the argument "row_comps", and creates a single html div.
+    #   The data_converter argument is a method that gets generated from the store_transform_closure
+    #      closure, which gets called in the constructor to VariableRowDiv      
+    def make_comps_closure(self):
+        # Return this method to caller of make_comps_closure
         def make_comps(input_list):
-            input_dict = data_converter(input_list[0])
+            '''
+            :param input_list: a single element list that holds a dictionary
+            '''
+            # Convert the 
+            input_dict = self.data_converter(input_list[0])
             if len(input_dict)<1:
-                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',logger)            
+                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',self.logger)            
 
-            row_data = callback(input_dict)
-            if row_data is None:
-                dgc.stop_callback(f'store_transform has NO data.  Callback return is ignored',logger)            
+            # !!!!!!!!!!!! RUN THE USER'S CALLBACK HERE !!!!!!!!!!!!!!!!
+            all_rows_data = self.app_callback(input_dict)
+            if all_rows_data is None:
+                return [dgc.html.Div()]
 
             all_comps = []
-            gc_list = []
-            for i in range(len(row_data)):
-                data_for_this_row = row_data[i]
-                for j in range(len(row_comps)):
-                    comp = row_comps[j] 
-                    cid = f'r{i+1}c{j+1}'
-                    c = comp.clone(cid,initial_data=row_data[i][j],title=cid)
+            for i in range(len(all_rows_data)):
+                for j in range(len(self.repeating_row_component_template)):
+                    # get the component to be replicated
+                    comp = self.repeating_row_component_template[j] 
+                    # create its component_id
+                    cid = f'{self.component_id}r{i+1}c{j+1}'
+                    # get the initial_data for the new component
+                    data_element = all_rows_data[i][j]
+                    # is the data_element ITSELF a dict?
+                    if type(data_element) == dict:
+                        # if so, then call comp.clone by using the data_elment as kwdargs
+                        if type(comp) == type:
+                            c = comp(cid,**data_element)
+                        else:
+                            c = comp.clone(cid,**data_element)
+                    else:
+                        # just use the data_element as the initial_data argument to clone
+                        if type(comp) == type:
+                            c = comp(cid,initial_data=data_element,title=cid)
+                        else:
+                            c = comp.clone(cid,initial_data=data_element,title=cid)
                     all_comps.append(c)
-                gc_list.append(row_layout)
-#             html_grid = dgc.create_grid(all_comps,len(row_comps))
-            html_grid = dgc.create_grid(all_comps,row_layout==row_layout)
+            html_grid = dgc.create_grid(all_comps,row_layout=self.repeating_row_layout_template)
             return [html_grid]
         return make_comps
+
+
+
 
 
 # This Markdown component allows you to use markdown in html divs
@@ -371,7 +523,7 @@ class MarkdownLine(dgc.dcc.Markdown):
             text_color='white',
             text_align='center',
             component_id=None):
-        h_string = ''.join(['#' for c in range(text_size)])
+        h_string = ''.join(['#' for _ in range(text_size)])
         mstring = f'{h_string} {markdown_text}'
         super(MarkdownLine,self).__init__(
             mstring,id=component_id,
@@ -394,5 +546,8 @@ class MarkdownDiv(html.Div):
         super(MarkdownDiv,self).__init__(markdown_children_list,
                     id=component_id,
                     style=mstyle)
+
+# *************************** Component examples to use with VariableRowDiv ************
+# component examples
 
 
