@@ -340,9 +340,10 @@ DEFAULT_COMPONENT_TRANSFORM_DICT = {
     str(TableInput):dgc.make_df,
     str(TextBoxInput):str,
     str(FigureStatic):dgc.make_df,
-    str(dgc.ChainedDropDownDiv):str
+    str(dgc.ChainedDropDownDiv):str,
+    str(dgc.RadioItemComponent):str,
+    str(dgc.RangeSliderComponent):str,
 }
-
 
 
 class VariableRowDiv():
@@ -546,6 +547,25 @@ class MarkdownDiv(html.Div):
         super(MarkdownDiv,self).__init__(markdown_children_list,
                     id=component_id,
                     style=mstyle)
+
+class DivStatic(dgc.DivComponent):
+    def __init__(self,
+                 component_id,
+                 initial_data=None,
+                 **kwargs):
+        self.component_id = component_id
+        self.kwargs_for_clone = kwargs.copy()
+        self.kwargs_for_clone['initial_data'] = initial_data
+        super().__init__(self.component_id, initial_children=initial_data)
+
+    def clone(self,component_id,**kwargs):
+        if kwargs is not None:
+            print(f'TableInput.clone kwargs: {kwargs.keys()}')
+        new_kwargs = kwargs.copy()        
+        for kwa in self.kwargs_for_clone.keys():
+            if kwa not in new_kwargs.keys():
+                new_kwargs[kwa] = self.kwargs_for_clone[kwa]
+        return DivStatic(component_id,**new_kwargs)
 
 # *************************** Component examples to use with VariableRowDiv ************
 # component examples

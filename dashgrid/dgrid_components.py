@@ -785,7 +785,7 @@ class DivComponent(ComponentWrapper):
                     callback_input_transformer=h1_lambda,
                     style=s,
                     logger=logger)
-
+        
     
 markdown_style={
     'borderWidth': '1px',
@@ -1166,6 +1166,7 @@ class MultiDropdownDiv(DivComponent):
                 component_id,
                 df,
                 columns_to_use,
+                use_storage_for_callback=False,
                 style=None,
                 logger=None):
         # Step 01: save inputs
@@ -1201,31 +1202,118 @@ class MultiDropdownDiv(DivComponent):
             # append the newly created instance to the instance's dropdown_list
             self.dropdown_list.append(cdd)
             
+        #   if use_storage_for_callback, then create a Storage
+        self.use_storage_for_callback = use_storage_for_callback
+        self.storage_comp = None
+        if use_storage_for_callback:
+            storage_input_tuples = [(t.component_id,'value') for t in self.dropdown_list]
+            self.storage_comp = StoreComponent(f'dd_store_comp_{self.component_id}',
+                    storage_input_tuples,
+                    create_data_dictionary_from_df_transformer=lambda v:v,
+                    initial_data={})
+        
         # Step 05:  use dgc.create_grid to make one html element from all of the ChainedDropDownDiv's
         #    in self.dropdown_list
         col_perc = round(98/len(self.dropdown_list),1)
         column_width_percents = [col_perc for _ in range(len(self.dropdown_list))]
 #         print(f'MultiDropdownDiv column_width_percents {column_width_percents}')
+        
         dropdown_grid = create_grid(
             self.dropdown_list,
             column_width_percents=column_width_percents
         )
 
         # Step 06:  call super (DivComponent)
+        init_children = dropdown_grid if self.storage_comp is None else [dropdown_grid,self.storage_comp]
         super(MultiDropdownDiv,self).__init__(
             self.component_id,
-            initial_children=dropdown_grid,
+#             initial_children=dropdown_grid,
+            initial_children=init_children,
             style=style,
             logger=logger
         )
+        if self.storage_comp is not None:
+            self.output_data_tuple = self.storage_comp.output_data_tuple
         
     # overide the callback of dgc.DivComponent so that you register all of the 
     #   ChainedDropDownDiv's
     def callback(self,theapp):  
         super(MultiDropdownDiv,self).callback(theapp)
-        for d in self.dropdown_list:
-            d.callback(theapp)
+        if not self.use_storage_for_callback:
+            for d in self.dropdown_list:
+                d.callback(theapp)
 #***************************************** MultiDropdownDiv *****************************************
+            
+class RadioItemComponent(ComponentWrapper):
+    def __init__(self,component_id,
+                 title,
+                 options,
+                 init_value,
+                 input_tuples=None,
+                 callback_input_transformer=None,
+                 labelStyle=None,style=None,logger=None):
+        self.component_id = component_id
+        odt = (component_id,'value')
+        ls = {'display':'inline'} if labelStyle is None else labelStyle
+        
+        radio = html.Div(
+            [
+                title,
+                dcc.RadioItems(id=component_id,
+                        options=options,
+                        value=init_value,labelStyle=ls)
+            ],
+            id=component_id+"_html")
+        cb = (lambda v:[v]) if callback_input_transformer is None else callback_input_transformer
+        super(RadioItemComponent,self).__init__(radio,
+             input__tuples=input_tuples,
+             output_tuples=[odt],
+             style=style,logger=logger,
+             callback_input_transformer=cb)
+        # restore the id of this class to component_id
+        self.id = component_id
+        self.output_data_tuple = odt
+
+
+class RangeSliderComponent(ComponentWrapper):
+    def __init__(self,component_id,
+                 title,
+                 min_value,
+                 max_value,
+                 init_value=None,
+                 step=1,
+                 input_tuples=None,
+                 callback_input_transformer=None,
+                 style=None,logger=None):
+        self.component_id = component_id
+        odt = (component_id,'value')
+        l = min_value
+        h = max_value
+        v = (h-l)/2 if init_value is None else init_value
+        # round to step
+        v = round(v*step)/step
+        slider = html.Div(
+            [
+                title,
+                dcc.RangeSlider(id=component_id,
+                        min=min_value,max=max_value,
+                        value=[l,h],step=step)
+            ],
+            id=component_id+"_html")
+        cb = (lambda v:[v]) if callback_input_transformer is None else callback_input_transformer
+        super(RangeSliderComponent,self).__init__(slider,
+             input__tuples=input_tuples,
+             output_tuples=[odt],
+             style=style,logger=logger,
+             callback_input_transformer=cb)
+        # restore the id of this class to component_id
+        self.id = component_id
+        self.output_data_tuple = odt
+
+
+            
+            
+            
             
 class FigureComponent(ComponentWrapper):
     def __init__(self,component_id,
@@ -1501,7 +1589,9 @@ def make_app(app_component_list,grid_template_columns_list=None,app=None):
     for ac in app_component_list:
         if isinstance(ac, ComponentWrapper):
             components_with_callbacks.append(ac)
-    [c.callback(ret_app) for c in components_with_callbacks]
+#     [c.callback(ret_app) for c in components_with_callbacks]
+    for c in components_with_callbacks:
+        c.callback(ret_app)
     return ret_app
         
 def make_multi_page_app(page_dict,app=None):

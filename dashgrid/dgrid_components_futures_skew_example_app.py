@@ -24,7 +24,6 @@ if  not os.path.abspath('./') in sys.path:
     sys.path.append(os.path.abspath('./'))
 if  not os.path.abspath('../') in sys.path:
     sys.path.append(os.path.abspath('../'))
-import display_utilities as du
 
 import datetime
 import pandas as pd
