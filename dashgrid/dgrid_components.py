@@ -29,10 +29,14 @@ from plotly.graph_objs.layout import Margin#,Font
 import dash
 import flask
 import logging
+import uuid
 
 
 DEFAULT_LOG_PATH = './logfile.log'
 DEFAULT_LOG_LEVEL = 'INFO'
+
+def _new_uuid():
+    return str(uuid.uuid1())
 
 def init_root_logger(logfile=DEFAULT_LOG_PATH,logging_level=DEFAULT_LOG_LEVEL):
     level = logging_level
@@ -652,6 +656,8 @@ class  ComponentWrapper():
                  loading_state='cube'):
         self.logger = init_root_logger(DEFAULT_LOG_PATH, DEFAULT_LOG_LEVEL) if logger is None else logger
         self.component = dash_component
+        if self.component.id is None:
+            self.component.id = _new_uuid()
         self.cid = self.component.id
         self.id = self.cid
         self.html_id = f'{self.cid}_html'

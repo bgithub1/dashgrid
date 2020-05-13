@@ -21,6 +21,12 @@ if  not os.path.abspath('../') in sys.path:
 from dashgrid import dgrid_components as dgc
 import dash_html_components as html
 import pandas as pd
+import uuid
+
+
+def _new_uuid():
+    return str(uuid.uuid1())
+
 # import traceback
 # import pdb
 
@@ -527,7 +533,7 @@ class MarkdownLine(dgc.dcc.Markdown):
         h_string = ''.join(['#' for _ in range(text_size)])
         mstring = f'{h_string} {markdown_text}'
         super(MarkdownLine,self).__init__(
-            mstring,id=component_id,
+            mstring,id=_new_uuid() if component_id is None else component_id,
             style={'color':text_color,'textAlign': text_align,})
                    
                    
