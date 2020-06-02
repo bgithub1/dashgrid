@@ -174,7 +174,7 @@ def plot_skew_vs_atm(SYMBOL_TO_RESEARCH,df_iv_final_in,df_iv_skew_in,df_cash_fut
     df_iv_final = df_iv_final_in[df_iv_final_in.symbol.str.slice(0,2)==SYMBOL_TO_RESEARCH].copy()
     df_iv_skew = df_iv_skew_in[df_iv_skew_in.symbol.str.slice(0,2)==SYMBOL_TO_RESEARCH].copy()
     df_cash_futures = df_cash_futures_in[df_cash_futures_in.symbol.str.slice(0,2)==SYMBOL_TO_RESEARCH].copy()
-
+    
     year = 'all' if year is None else year
     if str(year).lower() != 'all':
         y = int(str(year))
@@ -183,6 +183,11 @@ def plot_skew_vs_atm(SYMBOL_TO_RESEARCH,df_iv_final_in,df_iv_skew_in,df_cash_fut
         df_iv_final = df_iv_final[(df_iv_final.settle_date>=beg_year) & (df_iv_final.settle_date<=end_year)]
         df_iv_skew = df_iv_skew[(df_iv_skew.settle_date>=beg_year) & (df_iv_skew.settle_date<=end_year)]
         df_cash_futures = df_cash_futures[(df_cash_futures.settle_date>=beg_year) & (df_cash_futures.settle_date<=end_year)]
+
+    # sort by settle_date
+    df_iv_final = df_iv_final.sort_values('settle_date') 
+    df_iv_skew = df_iv_skew.sort_values('settle_date') 
+    df_cash_futures = df_cash_futures.sort_values('settle_date') 
 
     print(f'plot_skew_vs_atm year: {year}')
 
@@ -244,9 +249,9 @@ def plot_atm_vs_close(SYMBOL_TO_RESEARCH,df_iv_final_in,df_cash_futures_in,year=
                       y_left_label='atm_iv',y_right_label='close',plot_title=chart_title)
     return fig_atm_vs_close
 
-iplot(plot_atm_vs_close('CB',df_iv_final,df_cash_futures,year=2018))
+iplot(plot_atm_vs_close('CL',df_iv_final,df_cash_futures,year=2020))
 for d in [.05,.1,.2]:
-    fig1,fig2 = plot_skew_vs_atm('CB',df_iv_final,df_iv_skew,df_cash_futures,dist_from_zero=d,year=2018)
+    fig1,fig2 = plot_skew_vs_atm('CL',df_iv_final,df_iv_skew,df_cash_futures,dist_from_zero=d,year=2020)
     iplot(fig1)
     iplot(fig2)
 
@@ -273,7 +278,8 @@ STYLE_TITLE={
 def get_all_years_per_product(prod,df):
     df2 = df.copy()
     df['prod'] = df.symbol.apply(lambda v: v[:(len(v)-3)])
-    df_this_prod = df_cash_futures[df_cash_futures.symbol.str.slice(0,2)=='CL']
+#     df_this_prod = df_cash_futures[df_cash_futures.symbol.str.slice(0,2)=='CL']
+    df_this_prod = df_cash_futures[df_cash_futures.symbol.str.slice(0,2)==prod]
     years = df_this_prod.settle_date.astype(str).str.slice(0,4).astype(int).unique()
     return years.tolist()
 
