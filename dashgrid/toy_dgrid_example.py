@@ -21,7 +21,8 @@ from dashgrid import dgrid
 import dash
 import dash_html_components as html
 import pandas as pd
-import pandas_datareader.data as pdr
+# import pandas_datareader.data as pdr
+import yfinance as yf
 import datetime
 import argparse as ap
 from flask import redirect
@@ -49,6 +50,7 @@ STYLE_UPGRID['color'] = '#21618C'
 STYLE_DROPDOWN = STYLE_UPGRID.copy()
 STYLE_DROPDOWN['display'] = 'inline-block'
 
+
 def yahoo_fetcher(symbol_list,num_days=100):
     '''
     Get daily securities bars from yahoo
@@ -59,7 +61,8 @@ def yahoo_fetcher(symbol_list,num_days=100):
     dt_beg = dt_end - datetime.timedelta(num_days)
     df_final = None
     for symbol in symbol_list:
-        df_temp = pdr.DataReader(symbol, 'yahoo', dt_beg, dt_end)
+#         df_temp = pdr.DataReader(symbol, 'yahoo', dt_beg, dt_end)
+        df_temp = yf.download(symbol, dt_beg, dt_end)
         # move index to date column, sort and recreate index
         df_temp['date'] = df_temp.index
         df_temp = df_temp.sort_values('date')
