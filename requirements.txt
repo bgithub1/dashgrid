@@ -4,7 +4,7 @@ pandasql==0.7.3
 tqdm==4.19.1
 Flask==1.0.2
 dash_html_components==1.0.0
-numpy==1.17.4
+numpy==1.22.0
 scipy==1.1.0
 pandas==0.25.3
 dash_core_components==1.0.0
