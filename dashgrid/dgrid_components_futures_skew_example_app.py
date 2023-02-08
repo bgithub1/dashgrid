@@ -285,8 +285,9 @@ def get_all_years_per_product(prod,df):
 
 top_div = html.Div([
                     dgc.dcc.Markdown('''
-# Commodity Option Skew Analysis
-## Select a Commodity, Year and Monthcode below to display charts showing:
+## Commodity Option Skew Analysis
+------------------------------
+### Select a Commodity and a Year below to display charts showing:
 
 * atm vol vs price
 * skew vs price
