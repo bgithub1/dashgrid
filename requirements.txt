@@ -2,7 +2,8 @@ pandas_datareader==0.8.1
 pytz==2018.4
 pandasql==0.7.3
 tqdm==4.19.1
-Flask==1.0.2
+# Flask==1.0.2
+Flask
 dash_html_components==1.0.0
 numpy==1.17.4
 scipy==1.1.0
